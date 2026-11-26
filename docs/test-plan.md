@@ -52,7 +52,7 @@
 | E2E-15 | 锁屏 / 后台 / 厂商保活 | Android | 部分：锁屏后 HyperOS 会清理，需自启动+电池白名单 |
 | E2E-16 | 公网 Web 登录、地图、成员 | Web | 通过 |
 | E2E-17 | 模拟器安装、登录、引导、地图 | Android 模拟器 | 通过 |
-| E2E-18 | 最终 Release APK 安装与核心回归 | Android | 模拟器通过：v1.0.1、公网登录、家庭地图、立即定位 completed、登出/退出/重新加入；Redmi 待安装最终 APK（手机带走） |
+| E2E-18 | 最终 Release APK 安装与核心回归 | Android | 模拟器通过：v1.0.1、公网登录、家庭地图、立即定位 completed、登出/退出/重新加入；`verify-redmi.ps1` 模拟器 exit 0；Redmi 待安装最终 APK（手机带走，可用脚本一键验收） |
 
 ## 4. 已修复缺陷
 
