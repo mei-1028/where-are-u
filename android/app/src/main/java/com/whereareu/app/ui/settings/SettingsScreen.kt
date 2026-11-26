@@ -318,7 +318,7 @@ fun SettingsScreen(onLoggedOut: () -> Unit) {
         }
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "退出登录不会解绑设备，也不会删除服务端历史位置。",
+            text = "退出登录会解绑本机设备并停止位置共享；服务端历史位置不会删除。",
             style = MaterialTheme.typography.labelSmall,
             color = SlateText,
         )

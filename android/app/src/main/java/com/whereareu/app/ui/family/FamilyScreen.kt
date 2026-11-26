@@ -195,10 +195,18 @@ fun FamilyScreen(
             }
 
             Spacer(Modifier.height(16.dp))
-            PrimaryButton(
-                text = "邀请家人",
-                onClick = onOpenInvite,
-            )
+            if (uiState.isAdmin) {
+                PrimaryButton(
+                    text = "邀请家人",
+                    onClick = onOpenInvite,
+                )
+            } else {
+                Text(
+                    text = "仅管理员可以邀请家人。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SlateText,
+                )
+            }
 
             Spacer(Modifier.height(28.dp))
             Text(

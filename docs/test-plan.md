@@ -2,8 +2,8 @@
 
 | 项目 | 内容 |
 |---|---|
-| 版本 | v1.0.0（M1） |
-| 日期 | 2026-11-26 |
+| 版本 | v1.0.1（M1） |
+| 日期 | 2026-11-27 |
 | 目标 | 验证家庭位置共享核心链路、异常场景与发布可用性 |
 
 ## 1. 测试环境
@@ -37,7 +37,7 @@
 |---|---|---|---|
 | E2E-01 | 安装、冷启动、会话恢复 | Android | 通过 |
 | E2E-02 | 注册 / 登录 / 错误密码 | Android / Web | 通过 |
-| E2E-03 | 创建家庭、邀请码加入 | Android / Web | 通过 |
+| E2E-03 | 创建家庭、邀请码加入 | Android / Web | 通过（模拟器成员退出后重新用邀请码加入，设备重新注册） |
 | E2E-04 | 3 步权限引导（前台/后台/保活） | Android | 通过 |
 | E2E-05 | 家庭地图、成员状态、电量、地址 | Android | 通过 |
 | E2E-06 | 位置定时上报、服务端最新位置 | Android → Server | 通过 |
@@ -47,12 +47,12 @@
 | E2E-10 | 家庭页、设置页切换 | Android | 通过（升级高德 10.0.600 后不再闪退） |
 | E2E-11 | 地图 → 家庭 → 设置 → 地图 | Android | 通过（真机返回地图正常渲染；headless 模拟器 GL 黑屏为环境限制） |
 | E2E-12 | 历史轨迹（日期、折线、统计） | Android / Web | 通过（真机 78 个真实轨迹点；模拟器地图 GL 黑屏为 headless 限制） |
-| E2E-13 | 设备管理、绑定/解绑 | Web / Android | 待最终复测 |
+| E2E-13 | 设备管理、绑定/解绑 | Web / Android | 通过（模拟器登出 DELETE 旧设备，服务端旧设备消失；重新登录/加入注册新设备） |
 | E2E-14 | 断网、服务端不可达、离线队列 | Android | 通过：断网暂停本地生效并停服务，联网后 SharingSyncWorker 补发 PATCH 200；离线队列与并发 flush 有单测 |
 | E2E-15 | 锁屏 / 后台 / 厂商保活 | Android | 部分：锁屏后 HyperOS 会清理，需自启动+电池白名单 |
 | E2E-16 | 公网 Web 登录、地图、成员 | Web | 通过 |
 | E2E-17 | 模拟器安装、登录、引导、地图 | Android 模拟器 | 通过 |
-| E2E-18 | 最终 Release APK 安装与核心回归 | Android | 模拟器通过：v1.0.0、公网登录、家庭地图、立即定位 completed；Redmi 待安装最终 APK（手机带走） |
+| E2E-18 | 最终 Release APK 安装与核心回归 | Android | 模拟器通过：v1.0.1、公网登录、家庭地图、立即定位 completed、登出/退出/重新加入；Redmi 待安装最终 APK（手机带走） |
 
 ## 4. 已修复缺陷
 
@@ -65,7 +65,9 @@
 | D-05 | Android 17 16KB 页对齐警告 | 高德 9.7.0 .so 未对齐 | 升级 10.0.600 后 Redmi（4KB 页）不再告警。注意：10.0.600 .so 仍是 4KB 页对齐，16KB 页内核机型存在 dlopen 风险，需高德 16KB 版本 |
 | D-06 | 共享暂停只停本机、家人端不同步 | 缺少写接口 | 契约新增 `PATCH /api/families/me/sharing`，Android 接入 |
 | D-07 | 公网立即定位 30s 超时 | App 已收到 locate 指令，但高德 10.0.600 一次性定位回调未产出 | 已修复：AMap one-shot 6s → 系统 fused 8s 降级；模拟器/真机命令 completed |
-| D-08 | 发布产物曾指向内网/0.1.0/debuggable | 早期 debug 产物；release 未签名 | 已配置 release signingConfig(debug cert)、versionName 1.0.0、公网 API；release APK 已验证签名/版本 |
+| D-08 | 发布产物曾指向内网/0.1.0/debuggable | 早期 debug 产物；release 未签名 | 已配置 release signingConfig(debug cert)、versionName 1.0.1、公网 API；release APK 已验证签名/版本 |
+| D-09 | 设置页称登出“不会解绑设备”，实际登出会 DELETE 设备 | 高德/登录修复后新增设备解绑，文案未同步 | v1.0.1 改为“退出登录会解绑本机设备并停止位置共享；服务端历史位置不会删除” |
+| D-10 | 普通成员也能看到“邀请家人”按钮 | FamilyScreen 未按 isAdmin 区分 | v1.0.1 成员端改为“仅管理员可以邀请家人”，隐藏邀请入口 |
 
 ## 5. 发布门槛
 
