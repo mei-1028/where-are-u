@@ -1,0 +1,94 @@
+# ---------- Node / 前端 ----------
+node_modules/
+dist/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/install-state.gz
+.pnp.*
+
+# ---------- 环境变量与密钥 ----------
+# 所有 .env.* 默认忽略，但保留示例文件
+.env
+.env.*
+!.env.example
+deploy/.env
+
+# 真实配置文件（含 token），只提交 .example
+deploy/frpc.toml
+deploy/frps.toml
+
+# 签名与证书材料
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+signing.properties
+secrets.properties
+
+# ---------- Prisma / SQLite ----------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+# 部署数据与备份（含数据库与位置数据）
+deploy/data/
+deploy/backups/
+deploy/web-dist/
+
+# ---------- Android / Gradle ----------
+.gradle/
+build/
+local.properties
+captures/
+.navigation/
+.externalNativeBuild/
+.cxx/
+.kotlin/
+*.apk
+*.aab
+*.hprof
+hs_err_pid*.log
+
+# ---------- IDE / 编辑器 ----------
+.idea/
+.vscode/
+.fleet/
+*.iml
+*.swp
+*.swo
+*~
+.history/
+
+# ---------- 日志 ----------
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ---------- 操作系统 ----------
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---------- 本地验收产物 ----------
+.playwright-mcp/
+**/.playwright-mcp/
+web-*.png
+
+# ---------- 发布产物（v1 侧载 APK） ----------
+!release/
+!release/*.apk
+!release/*.sha256
+!release/SHA256SUMS.txt

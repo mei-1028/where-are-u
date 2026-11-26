@@ -1,0 +1,44 @@
+# HTTP-only，监听 18080；公网由 frps 的 18080 -> 本机 18080 转发。
+# 不使用域名，因此没有自动 HTTPS。
+
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
+:18080 {
+	encode zstd gzip
+	log
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "geolocation=(self), camera=(), microphone=()"
+		-Server
+	}
+
+	root * /srv/web
+
+	handle /api/* {
+		reverse_proxy server:3000
+	}
+
+	handle /ws {
+		reverse_proxy server:3000
+	}
+	handle /ws/* {
+		reverse_proxy server:3000
+	}
+
+	# 部署探活
+	handle /health {
+		reverse_proxy server:3000
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -1,0 +1,13 @@
+# frps.toml —— 运行在公网 VPS 上
+# 复制为 /etc/frp/frps.toml 后填写真实值；不要把真实 token 提交到仓库。
+# frps 只负责 TCP 转发，不终结 TLS，也不需要证书。
+
+bindPort = 7000
+
+auth.method = "token"
+auth.token = "REPLACE_WITH_FRP_TOKEN"   # 必须与家中 frpc.toml 完全一致
+
+# 安全建议：
+# - VPS 防火墙只放行 22/80/443/7000；7000 尽量限制为家中出口 IP。
+# - 不要在 VPS 上同时运行占用 80/443 的 Web 服务器，否则 frps 无法绑定。
+# - 不建议开启 dashboard；如确需开启，必须限制来源并设置强口令。

@@ -1,0 +1,13 @@
+# Copy to android/local.properties (never commit it).
+# Values here take priority over gradle.properties.
+#
+# sdk.dir is usually written automatically by Android Studio, e.g.
+# sdk.dir=C\:\\Users\\you\\AppData\\Local\\Android\\Sdk
+
+# AMap Android key. Get one at https://console.amap.com/ (应用管理 → 创建应用 →
+# 添加 Key → 服务平台选择「Android 平台」), using the package name
+# com.whereareu.app and the SHA1 of your signing certificate.
+AMAP_KEY=
+
+# Server root URL (no trailing /api). Emulator -> host machine is 10.0.2.2.
+API_BASE_URL=http://10.0.2.2:3000

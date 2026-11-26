@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">你在哪</string>
+    <string name="notification_channel_tracking">位置共享状态</string>
+    <string name="notification_channel_tracking_desc">显示位置共享是否正在进行</string>
+    <string name="notification_channel_alerts">提醒</string>
+    <string name="notification_channel_alerts_desc">恢复共享等提醒</string>
+</resources>

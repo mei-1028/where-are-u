@@ -1,0 +1,50 @@
+# Caddyfile —— 家中设备的 TLS 终点与反向代理
+#
+# SITE_DOMAIN 由 deploy/.env 提供：
+#   - frp 模式：裸域名，例如 where-are-u.example.com（Caddy 自动申请/续期证书）
+#   - Cloudflare Tunnel 模式：:80（公网 TLS 由 Cloudflare 边缘终结，Caddy 只做 HTTP）
+#
+# 同一个站点同时提供 Web 静态资源、REST API 与设备 WebSocket。
+
+{
+	# 家中出口只经 frp 的 TCP 转发，公网没有 UDP/443；关闭 HTTP/3，
+	# 避免客户端尝试不可达的 QUIC 连接。
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+	log
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "geolocation=(self), camera=(), microphone=()"
+		-Server
+	}
+
+	# Web 构建产物挂载点（见 docker-compose.yml）
+	root * /srv/web
+
+	# REST API
+	handle /api/* {
+		reverse_proxy server:3000
+	}
+
+	# 设备 WebSocket；Caddy 会自动处理 Upgrade 与长连接
+	handle /ws {
+		reverse_proxy server:3000
+	}
+	handle /ws/* {
+		reverse_proxy server:3000
+	}
+
+	# SPA 静态资源与前端路由回退
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}

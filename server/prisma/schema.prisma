@@ -1,0 +1,115 @@
+// 「你在哪」M1 data model. See docs/api-contract.md §8.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  username      String         @unique
+  nickname      String
+  passwordHash  String
+  createdAt     DateTime       @default(now())
+  memberships   FamilyMember[]
+  devices       Device[]
+  locations     Location[]
+  locateRequests LocateCommand[] @relation("LocateRequestedBy")
+}
+
+model Family {
+  id              String         @id @default(cuid())
+  name            String
+  inviteCode      String         @unique
+  inviteExpiresAt DateTime
+  createdAt       DateTime       @default(now())
+  members         FamilyMember[]
+  devices         Device[]
+  locations       Location[]
+  commands        LocateCommand[]
+}
+
+model FamilyMember {
+  id            String   @id @default(cuid())
+  familyId      String
+  userId        String
+  role          String   @default("member") // "admin" | "member"
+  sharingPaused Boolean  @default(false)
+  joinedAt      DateTime @default(now())
+  family        Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // One user belongs to at most one family at a time (contract §1).
+  @@unique([userId])
+  @@unique([familyId, userId])
+  @@index([familyId])
+}
+
+model Device {
+  id          String   @id @default(cuid())
+  userId      String
+  familyId    String
+  name        String
+  platform    String
+  model       String
+  osVersion   String
+  appVersion  String
+  tokenHash   String   @unique
+  online      Boolean  @default(false)
+  // Soft unbind: revoked devices keep their rows (and Location history) but
+  // can no longer authenticate, be located, or appear in device lists.
+  active      Boolean  @default(true)
+  revokedAt   DateTime?
+  lastSeenAt  DateTime?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family      Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  locations   Location[]
+  commands    LocateCommand[]
+
+  @@index([familyId, active])
+  @@index([userId])
+}
+
+model Location {
+  id         String   @id @default(cuid())
+  deviceId   String
+  userId     String
+  familyId   String
+  lat        Float
+  lng        Float
+  accuracy   Int
+  speed      Float?
+  bearing    Float?
+  battery    Int?
+  provider   String?
+  recordedAt DateTime
+  createdAt  DateTime @default(now())
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family     Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, recordedAt])
+  @@index([familyId, recordedAt])
+}
+
+model LocateCommand {
+  id          String    @id @default(cuid())
+  deviceId    String
+  familyId    String
+  requestedBy String
+  status      String    @default("pending") // "pending" | "completed" | "timeout" | "failed"
+  createdAt   DateTime  @default(now())
+  deadlineAt  DateTime
+  completedAt DateTime?
+  device      Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  family      Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  requester   User      @relation("LocateRequestedBy", fields: [requestedBy], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@index([status, deadlineAt])
+}

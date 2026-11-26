@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+test
+prisma/*.db
+prisma/.test-*
+*.log
+.env
+.git
+.gitignore
+README.md

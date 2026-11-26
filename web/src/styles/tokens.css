@@ -1,0 +1,64 @@
+:root {
+  /* ---- Core palette (Miro) ------------------------------------------------ */
+  --ink: #1c1c1e;
+  --slate: #555a6a;
+  --ink-muted: #838796;
+  --placeholder: #a5a8b5;
+  --white: #ffffff;
+
+  --blue: #5b76fe;
+  --blue-hover: #4d68f3;
+  --blue-pressed: #2a41b6;
+  --blue-soft: #eef1ff;
+
+  --success: #00b473;
+  --success-soft: #e7f8f2;
+  --danger: #b3261e;
+
+  --coral: #ffc6c6;
+  --rose: #ffd8f4;
+  --teal: #c3faf5;
+  --orange: #ffe6cd;
+  --pink: #fde0f0;
+  --red: #fbd4d4;
+
+  --coral-ink: #7a1f1f;
+  --rose-ink: #7a235f;
+  --teal-ink: #0f5f5c;
+  --orange-ink: #7a4311;
+  --pink-ink: #74234e;
+  --red-ink: #7f1d1d;
+  --yellow-ink: #746019;
+
+  /* ---- Structure --------------------------------------------------------- */
+  --border: #c7cad5;
+  --ring: #e0e2e8;
+  --input-line: #e9eaef;
+  --line: #eceef2;
+  --surface-soft: #f7f8fa;
+  --surface-sunken: #f2f3f6;
+  --map-base: #f5f6f8;
+
+  /* ---- Radii ------------------------------------------------------------- */
+  --r-btn: 8px;
+  --r-card: 12px;
+  --r-panel: 20px;
+  --r-panel-lg: 24px;
+  --r-pill: 999px;
+
+  /* ---- Elevation (deliberately minimal) ----------------------------------
+     Miro relies on 1px rings, not drop shadows. The soft shadow is reserved
+     for things that actually float above the canvas. */
+  --ring-shadow: 0 0 0 1px var(--ring);
+  --float-shadow: 0 24px 64px -36px rgba(28, 28, 30, 0.28);
+  --marker-shadow: 0 6px 18px -10px rgba(28, 28, 30, 0.38);
+
+  /* ---- Type -------------------------------------------------------------- */
+  --font-sans: 'Noto Sans', 'Noto Sans SC', 'PingFang SC', 'HarmonyOS Sans',
+    'MiSans', 'Microsoft YaHei', system-ui, sans-serif;
+
+  /* ---- Layout ------------------------------------------------------------ */
+  --topbar-h: 64px;
+  --content-max: 1120px;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}

@@ -1,0 +1,81 @@
+# 「你在哪」生产部署栈：Fastify 服务端 + Caddy
+# 用法：cd deploy && cp .env.example .env && docker compose up -d --build
+# 变量说明见 .env.example 与 ../docs/setup.md
+#
+# 注意：
+# - server 的镜像由 server agent 提供 Dockerfile（../server/Dockerfile）。
+# - 公网入口依赖 frpc / cloudflared 将 80/443 转到本机，本文件不包含隧道进程。
+# - 单实例部署：不要 scale server，SQLite 与设备 WebSocket 状态不支持多实例。
+
+name: where-are-u
+
+services:
+  server:
+    build:
+      context: ../server
+      # dockerfile: Dockerfile
+    # 若无 Dockerfile，可先手动构建镜像并改用下面这行：
+    # image: where-are-u-server:local
+    restart: unless-stopped
+    environment:
+      # 变量与 server/src/lib/config.ts 对齐；无 Dockerfile 时以 server 实现为准
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: "file:/data/where-are-u.db"
+      # 必须由 deploy/.env 提供，未设置时 compose 直接报错，避免误用默认密钥
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (see deploy/.env.example)}"
+      # @fastify/cors 的来源白名单，逗号分隔；同源部署时浏览器不触发 CORS
+      CORS_ORIGIN: "${CORS_ORIGIN:-*}"
+      LOCATE_TIMEOUT_MS: "30000"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      # 历史保留天数当前未在 server 配置中实现（见 docs/architecture.md §10）
+      # 服务端还需在 Fastify 中启用 trustProxy 才能按真实客户端 IP 限流
+    volumes:
+      # 命名卷避免 Linux 上 root 所有导致的 /data 不可写；备份命令见 README
+      - where-are-u-data:/data
+    expose:
+      - "3000"
+    networks:
+      - appnet
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      # frp 模式：裸域名（自动 HTTPS）；Cloudflare Tunnel 模式：:80
+      SITE_DOMAIN: "${SITE_DOMAIN:?SITE_DOMAIN is required (see deploy/.env.example)}"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Web 构建产物；默认 deploy/web-dist，也可指向 ../web/dist
+      - ${WEB_DIST_DIR:-./web-dist}:/srv/web:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - appnet
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  where-are-u-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  appnet:

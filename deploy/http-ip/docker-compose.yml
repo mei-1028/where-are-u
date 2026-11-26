@@ -1,0 +1,71 @@
+# 「你在哪」HTTP + IP 临时部署栈（无域名）
+# 公网入口：http://YOUR_VPS_IP:18080
+# 结构：VPS frps:7012 -> NAS frpc -> 本机 Caddy:18080 -> server:3000
+#
+# 用法：
+#   cd deploy/http-ip
+#   cp .env.example .env   # 设置 JWT_SECRET
+#   docker compose up -d --build
+#
+# 注意：这是临时方案，HTTP 明文传输；有域名后请切回 ../docker-compose.yml 的 HTTPS 栈。
+
+name: whereareu-http
+
+services:
+  server:
+    build:
+      context: ../../server
+    image: whereareu-http-server:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: "file:/data/where-are-u.db"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required (see .env.example)}"
+      CORS_ORIGIN: "${CORS_ORIGIN:-http://YOUR_VPS_IP:18080}"
+      LOCATE_TIMEOUT_MS: "30000"
+      TRUST_PROXY: "loopback,uniquelocal"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+    volumes:
+      - whereareu-data:/data
+    expose:
+      - "3000"
+    networks:
+      - appnet
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "18080:18080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../web/dist:/srv/web:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - appnet
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  whereareu-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  appnet:
