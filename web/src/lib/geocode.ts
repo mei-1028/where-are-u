@@ -23,12 +23,27 @@ function cacheKey(lat: number, lng: number): string {
   return `${lat.toFixed(4)},${lng.toFixed(4)}`
 }
 
+/**
+ * Inserts into a Map used as an LRU: deleting before setting moves the key to
+ * the end, so the eviction below always drops the least recently *used* entry.
+ * A plain FIFO would evict a home address that is read constantly.
+ */
 function remember(key: string, value: string): void {
+  cache.delete(key)
   if (cache.size >= CACHE_LIMIT) {
     const oldest = cache.keys().next().value
     if (oldest !== undefined) cache.delete(oldest)
   }
   cache.set(key, value)
+}
+
+/** Cache hit that also refreshes recency for the LRU. */
+function recall(key: string): string | undefined {
+  const hit = cache.get(key)
+  if (hit === undefined) return undefined
+  cache.delete(key)
+  cache.set(key, hit)
+  return hit
 }
 
 function getGeocoder(AMap: any): Promise<any> {
@@ -78,7 +93,7 @@ export function reverseGeocode(lat: number, lng: number): Promise<string | null>
     return Promise.resolve(null)
   }
   const key = cacheKey(lat, lng)
-  const cached = cache.get(key)
+  const cached = recall(key)
   if (cached) return Promise.resolve(cached)
   const inFlight = pending.get(key)
   if (inFlight) return inFlight
