@@ -43,7 +43,7 @@ describe('validateApiBase', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('permits loopback/private HTTP only in development', () => {
+  it('permits plaintext HTTP to any host in development', () => {
     const devLoopback = validateApiBase('http://localhost:3000/api', {
       dev: true,
       currentOrigin: 'http://localhost:5173',
@@ -52,13 +52,33 @@ describe('validateApiBase', () => {
       dev: true,
       currentOrigin: 'http://localhost:5173',
     })
-    const prodLan = validateApiBase('http://192.168.0.10:3000/api', {
-      dev: false,
-      currentOrigin: 'https://app.example',
+    const devPublic = validateApiBase('http://home.example.com:3000/api', {
+      dev: true,
+      currentOrigin: 'http://localhost:5173',
+    })
+    const devPublicIp = validateApiBase('http://203.0.113.7:3000/api', {
+      dev: true,
+      currentOrigin: 'http://localhost:5173',
     })
     expect(devLoopback.ok).toBe(true)
     expect(devLan.ok).toBe(true)
-    expect(prodLan.ok).toBe(false)
+    expect(devPublic).toEqual({ ok: true, value: 'http://home.example.com:3000/api' })
+    expect(devPublicIp.ok).toBe(true)
+  })
+
+  it('still rejects plaintext HTTP outside development', () => {
+    expect(
+      validateApiBase('http://192.168.0.10:3000/api', {
+        dev: false,
+        currentOrigin: 'https://app.example',
+      }).ok,
+    ).toBe(false)
+    expect(
+      validateApiBase('http://home.example.com/api', {
+        dev: false,
+        currentOrigin: 'https://app.example',
+      }).ok,
+    ).toBe(false)
   })
 
   it('rejects embedded credentials and query strings', () => {
@@ -72,10 +92,11 @@ describe('validateApiBase', () => {
 })
 
 describe('API base override lifecycle', () => {
-  it('does not store an insecure override', () => {
-    const result = setApiBaseOverride('http://evil.example/api')
-    expect(result.ok).toBe(false)
-    expect(localStorage.getItem(API_BASE_KEY)).toBeNull()
+  it('stores plaintext HTTP overrides in development', () => {
+    const result = setApiBaseOverride('http://203.0.113.7:3000/api')
+    expect(result).toEqual({ ok: true, value: 'http://203.0.113.7:3000/api' })
+    expect(localStorage.getItem(API_BASE_KEY)).toBe('http://203.0.113.7:3000/api')
+    clearApiBaseOverride()
   })
 
   it('stores trusted overrides and can clear them', () => {
@@ -86,10 +107,10 @@ describe('API base override lifecycle', () => {
     expect(localStorage.getItem(API_BASE_KEY)).toBeNull()
   })
 
-  it('drops a tampered insecure value already in localStorage', () => {
-    localStorage.setItem(API_BASE_KEY, 'http://evil.example/api')
+  it('drops a tampered value that is invalid in every mode', () => {
+    localStorage.setItem(API_BASE_KEY, 'https://user:pass@api.example/api')
     const base = getApiBase()
-    expect(base).not.toContain('evil.example')
+    expect(base).not.toContain('user:pass')
     expect(localStorage.getItem(API_BASE_KEY)).toBeNull()
   })
 })

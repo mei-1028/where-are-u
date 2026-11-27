@@ -3,12 +3,13 @@ import LogoMark from './LogoMark.vue'
 
 withDefaults(
   defineProps<{
-    eyebrow: string
+    eyebrow?: string
     title: string
-    subtitle: string
+    subtitle?: string
     wide?: boolean
+    brand?: boolean
   }>(),
-  { wide: false },
+  { wide: false, brand: true, eyebrow: '', subtitle: '' },
 )
 </script>
 
@@ -19,24 +20,28 @@ withDefaults(
 
     <header class="auth-top">
       <RouterLink to="/login" class="auth-brand" aria-label="你在哪">
-        <LogoMark :size="32" wordmark micro />
+        <LogoMark :size="26" wordmark micro />
       </RouterLink>
-      <p class="micro auth-top__tag">PRIVATE BY DESIGN</p>
+      <span class="auth-top__tag">自建服务器</span>
     </header>
 
     <main class="auth-center">
       <section class="auth-card" :class="{ 'auth-card--wide': wide }">
-        <p class="micro">{{ eyebrow }}</p>
+        <div v-if="brand" class="auth-card__brand">
+          <span class="auth-card__mark">
+            <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 10c0 5.2-8 12-8 12S4 15.2 4 10a8 8 0 1 1 16 0Z" />
+              <circle cx="12" cy="10" r="2.8" />
+            </svg>
+          </span>
+          <span class="auth-card__wordmark">你在哪</span>
+        </div>
+
+        <p v-if="eyebrow" class="auth-eyebrow">{{ eyebrow }}</p>
         <h1 class="auth-title">{{ title }}</h1>
-        <p class="auth-subtitle">{{ subtitle }}</p>
+        <p v-if="subtitle" class="auth-subtitle">{{ subtitle }}</p>
         <slot />
       </section>
-
-      <footer class="auth-footer">
-        <span>v0.1.0 · M1</span>
-        <span class="auth-footer__dot" aria-hidden="true" />
-        <span>位置只属于家人</span>
-      </footer>
     </main>
   </div>
 </template>
@@ -49,19 +54,9 @@ withDefaults(
   align-items: center;
   justify-content: center;
   min-height: 100dvh;
-  padding: 104px 24px 48px;
+  padding: 96px 24px 48px;
   overflow: hidden;
   background: var(--white);
-}
-
-.auth-page::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: radial-gradient(circle at 1px 1px, #eceef2 1px, transparent 1.1px);
-  background-size: 30px 30px;
-  opacity: 0.55;
-  pointer-events: none;
 }
 
 .auth-shape {
@@ -70,48 +65,49 @@ withDefaults(
 }
 
 .auth-shape--teal {
-  top: -210px;
-  right: -140px;
-  width: 520px;
-  height: 520px;
-  border-radius: 50%;
+  top: -150px;
+  right: -110px;
+  width: 420px;
+  height: 420px;
+  border-radius: 96px;
   background: var(--teal);
-  opacity: 0.7;
-  box-shadow: 0 0 0 28px rgba(195, 250, 245, 0.25);
 }
 
 .auth-shape--coral {
-  bottom: -220px;
-  left: -170px;
-  width: 380px;
-  height: 440px;
+  bottom: -110px;
+  left: -110px;
+  width: 300px;
+  height: 300px;
   border-radius: 64px;
   background: var(--coral);
-  opacity: 0.6;
-  transform: rotate(-14deg);
-  box-shadow: 0 0 0 24px rgba(255, 198, 198, 0.18);
 }
 
 .auth-top {
   position: absolute;
-  top: 26px;
-  left: 30px;
-  right: 30px;
+  top: 30px;
+  left: 36px;
+  right: 36px;
   z-index: 2;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
 .auth-brand {
   display: inline-flex;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .auth-top__tag {
-  color: #9a9daa;
-  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--ink-muted);
+  font-size: 10px;
+  line-height: 1;
 }
 
 .auth-center {
@@ -120,53 +116,72 @@ withDefaults(
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
   width: 100%;
 }
 
 .auth-card {
-  width: min(430px, 100%);
-  padding: 38px 36px 34px;
+  width: min(420px, 100%);
+  padding: 36px 40px 36px;
   border-radius: var(--r-panel-lg);
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--white);
   box-shadow:
     0 0 0 1px var(--ring),
-    var(--float-shadow);
+    0 24px 60px -40px rgba(28, 28, 30, 0.28);
 }
 
 .auth-card--wide {
   width: min(468px, 100%);
 }
 
+.auth-card__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.auth-card__mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--blue);
+  color: var(--white);
+}
+
+.auth-card__wordmark {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.auth-eyebrow {
+  margin-top: 24px;
+  color: var(--ink-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .auth-title {
-  margin-top: 12px;
-  font-size: clamp(36px, 4.2vw, 48px);
-  line-height: 1.12;
-  letter-spacing: -0.032em;
+  margin-top: 28px;
+  font-size: 40px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
   font-weight: 500;
 }
 
+.auth-eyebrow + .auth-title {
+  margin-top: 10px;
+}
+
 .auth-subtitle {
-  margin-top: 12px;
+  margin-top: 10px;
   color: var(--slate);
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.6;
-}
-
-.auth-footer {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--ink-muted);
-  font-size: 10.5px;
-  letter-spacing: 0.03em;
-}
-
-.auth-footer__dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: #c7cad5;
 }
 
 @media (max-width: 600px) {
@@ -177,12 +192,8 @@ withDefaults(
 
   .auth-top {
     top: 18px;
-    left: 17px;
-    right: 17px;
-  }
-
-  .auth-top__tag {
-    display: none;
+    left: 18px;
+    right: 18px;
   }
 
   .auth-card {
@@ -190,24 +201,24 @@ withDefaults(
     border-radius: var(--r-panel);
   }
 
+  .auth-title {
+    font-size: 34px;
+  }
+
   .auth-shape--teal {
-    width: 340px;
-    height: 340px;
-    top: -150px;
-    right: -120px;
-    opacity: 0.5;
+    width: 300px;
+    height: 300px;
+    top: -140px;
+    right: -110px;
+    border-radius: 72px;
   }
 
   .auth-shape--coral {
-    width: 260px;
-    height: 320px;
-    bottom: -230px;
-    left: -140px;
-    opacity: 0.45;
-  }
-
-  .auth-footer {
-    font-size: 10px;
+    width: 220px;
+    height: 220px;
+    bottom: -120px;
+    left: -100px;
+    border-radius: 48px;
   }
 }
 </style>

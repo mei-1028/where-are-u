@@ -135,9 +135,10 @@ export function nearestLandmark(lat: number, lng: number): Landmark | null {
 }
 
 /**
- * The contract has no reverse-geocoding field, so the web app resolves a
- * friendly address locally. It always falls back to coordinates, never guesses
- * a street number.
+ * Best-effort local place name from the bundled landmark list. Returns an empty
+ * string when the point is far from any known landmark; raw coordinates are
+ * never surfaced to users. Callers pair this with remote reverse geocoding
+ * (see `usePlaceLabel`).
  */
 export function describeLocation(lat: number, lng: number): string {
   const nearest = nearestLandmark(lat, lng)
@@ -146,7 +147,7 @@ export function describeLocation(lat: number, lng: number): string {
     if (d < 900) return nearest.name
     if (d < 3200) return `${nearest.name}附近`
   }
-  return `坐标 ${lat.toFixed(4)}, ${lng.toFixed(4)}`
+  return ''
 }
 
 export function locationAgeMs(point: LocationPoint | null | undefined): number | null {

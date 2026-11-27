@@ -215,6 +215,32 @@ a {
   padding: 40px 40px 64px;
 }
 
+/* Floating content card used by the dashboard-style pages. */
+.page-shell {
+  padding: 16px;
+}
+
+.page-card {
+  width: 100%;
+  min-height: calc(100dvh - var(--topbar-h) - 32px);
+  padding: 34px 44px 40px;
+  border-radius: var(--r-panel-lg);
+  background: var(--white);
+  box-shadow: var(--panel-shadow);
+}
+
+@media (max-width: 900px) {
+  .page-shell {
+    padding: 12px;
+  }
+
+  .page-card {
+    min-height: calc(100dvh - var(--topbar-h) - 24px);
+    padding: 22px 18px 32px;
+    border-radius: var(--r-panel);
+  }
+}
+
 .page--wide {
   max-width: 1280px;
 }

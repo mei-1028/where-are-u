@@ -6,18 +6,16 @@ import { ApiError } from '@/api/errors'
 import type { MemberView } from '@/api/types'
 import { useFamilyStore } from '@/stores/family'
 import { useUiStore } from '@/stores/ui'
-import { copyText } from '@/lib/clipboard'
 import { messageForError } from '@/lib/errors'
-import { describeLocation, isStaleLocation, locationAgeMs } from '@/lib/geo'
+import { isStaleLocation } from '@/lib/geo'
 import {
   formatAccuracy,
   formatBattery,
   formatClock,
-  formatCoordinate,
-  formatDateTime,
   formatSpeed,
   relativeTime,
 } from '@/lib/format'
+import { usePlaceLabel } from '@/composables/usePlaceLabel'
 import Avatar from './Avatar.vue'
 import Icon from './Icon.vue'
 
@@ -39,28 +37,14 @@ const device = computed(
   () => family.devices.find((item) => item.id === props.member.deviceId) ?? null,
 )
 const location = computed(() => props.member.lastLocation)
-const address = computed(() =>
-  location.value
-    ? describeLocation(location.value.lat, location.value.lng)
-    : '暂无位置数据',
-)
+const { label: address } = usePlaceLabel(location, { empty: '暂无位置数据' })
 const updatedLabel = computed(() =>
   location.value ? relativeTime(location.value.recordedAt) : '暂无更新',
-)
-const exactUpdated = computed(() =>
-  location.value ? `${formatDateTime(location.value.recordedAt)} · ${formatClock(location.value.recordedAt)}` : '—',
 )
 const stale = computed(() => isStaleLocation(location.value))
 const paused = computed(() => props.member.sharingPaused)
 const offline = computed(() => !props.member.online)
 const canLocate = computed(() => Boolean(props.member.deviceId) && !paused.value)
-const ageLabel = computed(() => {
-  const age = locationAgeMs(location.value)
-  if (age === null) return '暂无位置'
-  return offline.value ? `最后在线 ${updatedLabel.value}` : `更新于 ${updatedLabel.value}`
-})
-const sharingLabel = computed(() => (paused.value ? '已暂停共享' : '共享中'))
-const roleLabel = computed(() => (props.member.role === 'admin' ? '管理员' : '成员'))
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -154,14 +138,6 @@ function friendlyLocateError(err: unknown, elapsed: number): string {
   return messageForError(err, '立即定位失败，请稍后再试')
 }
 
-async function copyCoordinates(): Promise<void> {
-  if (!location.value) return
-  const text = formatCoordinate(location.value.lat, location.value.lng)
-  const ok = await copyText(text)
-  if (ok) ui.toast('坐标已复制', 'success')
-  else ui.toast('复制失败，请手动选择坐标', 'error')
-}
-
 function openHistory(): void {
   if (!props.member.deviceId) return
   void router.push(`/history/${props.member.deviceId}`)
@@ -184,9 +160,21 @@ onBeforeUnmount(() => {
 <template>
   <aside class="member-detail" aria-label="成员详情">
     <div class="member-detail__head">
-      <div class="member-detail__identity">
+      <p class="member-detail__eyebrow">成员详情</p>
+      <button
+        type="button"
+        class="member-detail__close"
+        aria-label="关闭成员详情"
+        @click="emit('close')"
+      >
+        <Icon name="x" :size="14" />
+      </button>
+    </div>
+
+    <div class="member-detail__scroll">
+      <section class="member-detail__identity">
         <div class="member-detail__avatar">
-          <Avatar :name="member.nickname" :id="member.userId" :size="54" :muted="offline" />
+          <Avatar :name="member.nickname" :id="member.userId" :size="64" :muted="offline" />
           <span
             class="status-dot member-detail__status"
             :class="
@@ -199,32 +187,14 @@ onBeforeUnmount(() => {
           />
         </div>
         <div class="member-detail__name-block">
-          <p class="micro">MEMBER · {{ roleLabel }}</p>
           <h2 class="member-detail__name">{{ member.nickname }}</h2>
-          <p class="member-detail__online">
-            {{ paused ? '已暂停共享' : offline ? '离线' : '在线' }}
-            <span class="dot-sep">·</span>
-            {{ ageLabel }}
-          </p>
         </div>
-      </div>
-      <button
-        type="button"
-        class="btn btn--icon btn--ghost btn--sm"
-        aria-label="关闭成员详情"
-        @click="emit('close')"
-      >
-        <Icon name="x" :size="18" />
-      </button>
-    </div>
+      </section>
 
-    <div class="member-detail__scroll">
       <section class="member-detail__address">
-        <p class="micro">当前地址</p>
+        <p class="member-detail__label">当前位置</p>
         <h3 class="member-detail__address-text">{{ address }}</h3>
         <p class="member-detail__address-meta">
-          <Icon name="clock" :size="14" />
-          <span :title="exactUpdated">{{ ageLabel }}</span>
           <span v-if="stale" class="chip chip--warn">位置已过期</span>
           <span v-else-if="paused" class="chip chip--warn">已暂停共享</span>
         </p>
@@ -232,16 +202,16 @@ onBeforeUnmount(() => {
 
       <div v-if="paused" class="alert alert--warn member-detail__note">
         <Icon name="shield" :size="16" />
-        <span>对方已暂停位置共享。家人端会保留最后一次位置，但无法请求新位置。</span>
+        <span>对方已暂停位置共享，只能看到最后一次位置。</span>
       </div>
       <div v-else-if="!member.deviceId" class="alert alert--info member-detail__note">
         <Icon name="info" :size="16" />
-        <span>这位家人还没有绑定设备，因此暂时没有位置与电量数据。</span>
+        <span>这位家人还没有绑定设备。</span>
       </div>
 
       <dl class="member-detail__metrics">
         <div class="metric">
-          <dt>最后更新</dt>
+          <dt>更新时间</dt>
           <dd>{{ updatedLabel }}</dd>
         </div>
         <div class="metric">
@@ -249,32 +219,18 @@ onBeforeUnmount(() => {
           <dd>{{ formatAccuracy(location?.accuracy) }}</dd>
         </div>
         <div class="metric">
-          <dt>设备电量</dt>
+          <dt>电量</dt>
           <dd>{{ formatBattery(location?.battery) }}</dd>
+          <span v-if="location?.battery != null" class="metric__bar">
+            <span
+              class="metric__bar-fill"
+              :style="{ width: `${Math.min(100, Math.max(0, location.battery))}%` }"
+            />
+          </span>
         </div>
         <div class="metric">
-          <dt>移动速度</dt>
+          <dt>速度</dt>
           <dd>{{ formatSpeed(location?.speed) }}</dd>
-        </div>
-        <div class="metric metric--wide">
-          <dt>设备</dt>
-          <dd>{{ device?.name ?? '未绑定设备' }}</dd>
-        </div>
-        <div class="metric metric--wide">
-          <dt>坐标</dt>
-          <dd class="metric__coord">
-            <button
-              v-if="location"
-              type="button"
-              class="coord-button"
-              title="复制坐标"
-              @click="copyCoordinates"
-            >
-              {{ formatCoordinate(location.lat, location.lng) }}
-              <Icon name="copy" :size="13" />
-            </button>
-            <span v-else>—</span>
-          </dd>
         </div>
       </dl>
 
@@ -320,35 +276,41 @@ onBeforeUnmount(() => {
           <Icon v-else name="pin" :size="17" />
           {{ locateState === 'pending' ? '正在定位…' : '立即定位' }}
         </button>
-        <div class="member-detail__secondary">
-          <button
-            type="button"
-            class="btn"
-            :disabled="!member.deviceId"
-            :title="member.deviceId ? '查看历史轨迹' : '该成员还没有绑定设备'"
-            @click="openHistory"
-          >
-            <Icon name="clock" :size="16" />
-            历史轨迹
-          </button>
-          <button
-            type="button"
-            class="btn"
-            :disabled="!location"
-            @click="openNavigation"
-          >
-            <Icon name="navigation" :size="16" />
-            导航
-          </button>
+        <button
+          type="button"
+          class="btn member-detail__secondary"
+          :disabled="!member.deviceId"
+          :title="member.deviceId ? '查看历史轨迹' : '该成员还没有绑定设备'"
+          @click="openHistory"
+        >
+          <Icon name="clock" :size="16" />
+          查看历史轨迹
+        </button>
+        <button
+          type="button"
+          class="member-detail__link"
+          :disabled="!location"
+          @click="openNavigation"
+        >
+          <Icon name="navigation" :size="14" />
+          在高德地图中导航
+        </button>
+      </div>
+
+      <div class="member-detail__device">
+        <p class="member-detail__label">设备与上报</p>
+        <div class="device-row">
+          <span class="device-row__icon">
+            <Icon name="device" :size="16" />
+          </span>
+          <span class="device-row__copy">
+            <span class="device-row__name">{{ device?.name ?? '未绑定设备' }}</span>
+            <span class="device-row__meta">
+              {{ device ? device.osVersion : '—' }} · App v0.1
+            </span>
+          </span>
+          <span class="device-row__time">{{ formatClock(location?.recordedAt) }}</span>
         </div>
-        <p class="member-detail__sharing">
-          <span class="status-dot" :class="paused ? 'status-dot--paused' : 'status-dot--online'" />
-          {{ sharingLabel }} · 最后在线数据 {{ relativeTime(member.lastSeenAt) }}
-        </p>
-        <p class="member-detail__privacy">
-          <Icon name="shield" :size="12" />
-          位置仅在家庭成员之间共享
-        </p>
       </div>
     </div>
   </aside>
@@ -358,42 +320,76 @@ onBeforeUnmount(() => {
 .member-detail {
   display: flex;
   flex-direction: column;
+  width: 100%;
   height: 100%;
   background: var(--white);
   border-radius: var(--r-panel);
-  box-shadow:
-    0 0 0 1px var(--ring),
-    var(--float-shadow);
+  box-shadow: var(--panel-shadow-lifted);
   overflow: hidden;
 }
 
 .member-detail__head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 22px 22px 18px;
+  padding: 24px 24px 0;
+}
+
+.member-detail__eyebrow {
+  color: var(--ink-muted);
+  font-size: 10.5px;
+  line-height: 1.3;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.member-detail__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-soft);
+  color: var(--slate);
+  transition: background-color 0.16s, color 0.16s;
+}
+
+.member-detail__close:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.member-detail__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 24px;
 }
 
 .member-detail__identity {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
 }
 
 .member-detail__avatar {
   position: relative;
   flex: 0 0 auto;
+  display: flex;
 }
 
 .member-detail__status {
   position: absolute;
   right: 1px;
   bottom: 2px;
-  width: 12px;
-  height: 12px;
-  border: 2.5px solid #fff;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #fff;
+  box-shadow: none;
 }
 
 .member-detail__name-block {
@@ -401,41 +397,34 @@ onBeforeUnmount(() => {
 }
 
 .member-detail__name {
-  margin-top: 4px;
-  font-size: 26px;
+  font-size: 24px;
   line-height: 1.2;
   letter-spacing: -0.025em;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .member-detail__online {
-  margin-top: 4px;
-  color: var(--ink-muted);
-  font-size: 12.5px;
+  margin-top: 3px;
+  color: var(--slate);
+  font-size: 11.5px;
   line-height: 1.4;
 }
 
-.dot-sep {
-  margin: 0 4px;
-}
-
-.member-detail__scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 22px 24px;
+.member-detail__label {
+  color: var(--ink-muted);
+  font-size: 10.5px;
+  line-height: 1.3;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
 }
 
 .member-detail__address {
-  padding: 18px 0 20px;
-  border-top: 1px solid var(--line);
-}
-
-.member-detail__address .micro {
-  margin-bottom: 8px;
+  margin-top: 20px;
 }
 
 .member-detail__address-text {
+  margin-top: 6px;
   font-size: 22px;
   line-height: 1.35;
   letter-spacing: -0.02em;
@@ -448,102 +437,64 @@ onBeforeUnmount(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 10px;
-  color: var(--ink-muted);
-  font-size: 12px;
-  line-height: 1.5;
+  margin-top: 8px;
 }
 
 .member-detail__note {
-  margin-bottom: 16px;
+  margin-top: 14px;
 }
 
 .member-detail__metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0;
-  margin: 0 0 20px;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  gap: 10px;
+  margin: 18px 0 0;
 }
 
 .metric {
-  padding: 14px 0;
-  min-width: 0;
-}
-
-.metric + .metric {
-  border-left: 1px solid var(--line);
-  padding-left: 16px;
-}
-
-.metric:nth-child(3) {
-  border-left: 0;
-  padding-left: 0;
-}
-
-.metric:nth-child(n + 3) {
-  border-top: 1px solid var(--line);
-}
-
-.metric--wide {
-  grid-column: 1 / -1;
-  border-left: 0;
-  padding-left: 0;
-  border-top: 1px solid var(--line);
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 70px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--ring);
+  background: var(--white);
 }
 
 .metric dt {
-  font-size: 10px;
+  font-size: 10.5px;
   line-height: 1.3;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--ink-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .metric dd {
-  margin: 5px 0 0;
-  font-size: 14.5px;
-  color: var(--ink);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-.metric--wide dd {
   margin: 0;
-  text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.metric__coord {
-  min-width: 0;
-}
-
-.coord-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--slate);
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-  border-radius: 5px;
-  padding: 2px 4px;
-  margin-right: -4px;
-  transition:
-    background-color 0.14s,
-    color 0.14s;
-}
-
-.coord-button:hover {
-  background: var(--surface-soft);
+  font-size: 16px;
+  line-height: 1.35;
   color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric__bar {
+  display: block;
+  height: 3px;
+  margin-top: auto;
+  border-radius: 2px;
+  background: var(--input-line);
+  overflow: hidden;
+}
+
+.metric__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--success);
 }
 
 .locate-panel {
@@ -552,14 +503,14 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 12px 14px;
   border-radius: 10px;
-  margin-bottom: 16px;
-  font-size: 13px;
+  margin-top: 12px;
+  font-size: 12.5px;
   line-height: 1.5;
 }
 
 .locate-panel strong {
   display: block;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -586,32 +537,89 @@ onBeforeUnmount(() => {
 .member-detail__actions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.member-detail__actions .btn--primary {
+  min-height: 48px;
+  font-size: 15px;
+  border-radius: 8px;
 }
 
 .member-detail__secondary {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
 }
 
-.member-detail__sharing {
-  display: flex;
+.member-detail__link {
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  margin-top: 4px;
+  justify-content: center;
+  gap: 6px;
+  min-height: 24px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.member-detail__link:disabled {
   color: var(--ink-muted);
-  font-size: 11.5px;
-  line-height: 1.5;
+  opacity: 0.6;
 }
 
-.member-detail__privacy {
+.member-detail__device {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--input-line);
+}
+
+.device-row {
   display: flex;
   align-items: center;
-  gap: 5px;
-  color: #b0b3bd;
-  font-size: 10px;
-  line-height: 1.5;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.device-row__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--slate);
+  flex: 0 0 auto;
+}
+
+.device-row__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.device-row__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-row__meta {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+}
+
+.device-row__time {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 900px) {
@@ -625,7 +633,7 @@ onBeforeUnmount(() => {
   }
 
   .member-detail__head {
-    padding: 14px 20px 16px;
+    padding: 14px 20px 0;
   }
 
   .member-detail__head::before {
@@ -645,7 +653,7 @@ onBeforeUnmount(() => {
   }
 
   .member-detail__scroll {
-    padding: 0 20px 22px;
+    padding: 16px 20px 22px;
   }
 
   .member-detail__address-text {

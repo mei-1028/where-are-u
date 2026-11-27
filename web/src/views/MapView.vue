@@ -160,10 +160,11 @@ onBeforeUnmount(() => {
   <div class="map-page">
     <aside class="member-panel" :class="{ 'is-open': membersOpen }" aria-label="家庭成员列表">
       <div class="panel-head">
-        <div>
-          <p class="micro">FAMILY · {{ family.family?.name ?? '我的家庭' }}</p>
-          <h1 class="panel-title">家人</h1>
+        <div class="panel-head__title-row">
+          <h1 class="panel-title">家庭成员</h1>
+          <span class="panel-count">{{ members.length }}</span>
         </div>
+        <RouterLink to="/family" class="panel-invite">+ 邀请</RouterLink>
         <button
           type="button"
           class="btn btn--icon btn--ghost btn--sm panel-close"
@@ -175,10 +176,6 @@ onBeforeUnmount(() => {
       </div>
 
       <p class="panel-caption">
-        <span
-          class="status-dot"
-          :class="onlineCount > 0 ? 'status-dot--online' : 'status-dot--offline'"
-        />
         <template v-if="loadingInitial">正在同步家庭位置…</template>
         <template v-else>
           {{ onlineCount }} / {{ members.length }} 人在线
@@ -209,10 +206,6 @@ onBeforeUnmount(() => {
         </div>
 
         <template v-else>
-          <div class="member-list__label">
-            <span class="micro">全部成员</span>
-            <span class="micro">{{ members.length }}</span>
-          </div>
           <MemberCard
             v-for="member in members"
             :key="member.userId"
@@ -240,13 +233,6 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <div class="panel-foot">
-        <RouterLink to="/family" class="panel-foot__link">
-          家庭与邀请
-          <Icon name="arrow-right" :size="16" />
-        </RouterLink>
-        <p class="panel-foot__meta">每 10 秒自动刷新 · 页面隐藏时暂停</p>
-      </div>
     </aside>
 
     <div class="map-region">
@@ -345,39 +331,76 @@ onBeforeUnmount(() => {
 <style scoped>
 .map-page {
   position: relative;
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
   height: calc(100dvh - var(--topbar-h));
   min-height: 0;
   overflow: hidden;
-  background: var(--white);
+  background: var(--canvas);
 }
 
 /* ---- Member panel ------------------------------------------------------- */
 
 .member-panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  bottom: 16px;
+  z-index: 3;
+  width: 320px;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 28px 14px 16px;
+  padding: 20px 14px;
   background: var(--white);
-  border-right: 1px solid var(--ring);
+  border-radius: var(--r-panel);
+  box-shadow: var(--panel-shadow);
 }
 
 .panel-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 0 10px;
+  gap: 10px;
+  padding: 0 6px;
+}
+
+.panel-head__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .panel-title {
-  margin-top: 6px;
-  font-size: 32px;
-  line-height: 1.12;
+  font-size: 24px;
+  line-height: 1.2;
   letter-spacing: -0.03em;
   font-weight: 500;
+}
+
+.panel-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 23px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--slate);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.panel-invite {
+  margin-left: auto;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.panel-invite:hover {
+  color: var(--blue-hover);
 }
 
 .panel-close {
@@ -389,10 +412,10 @@ onBeforeUnmount(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 10px;
-  padding: 0 10px;
-  color: var(--ink-muted);
-  font-size: 11.5px;
+  margin-top: 6px;
+  padding: 0 6px;
+  color: var(--slate);
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -406,20 +429,9 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 22px;
-  padding: 0 0 12px;
-}
-
-.member-list__label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 10px 8px;
-}
-
-.member-list__label .micro {
-  font-size: 9.5px;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 0 0 4px;
 }
 
 .member-skeleton {
@@ -557,10 +569,15 @@ onBeforeUnmount(() => {
 /* ---- Map region --------------------------------------------------------- */
 
 .map-region {
-  position: relative;
-  min-width: 0;
-  min-height: 0;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  left: 352px;
   overflow: hidden;
+  border-radius: var(--r-panel-lg);
+  box-shadow: var(--panel-shadow);
+  background: var(--map-base);
 }
 
 .members-toggle {
@@ -763,11 +780,11 @@ onBeforeUnmount(() => {
 
 .detail-slot {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  bottom: 16px;
+  top: 12px;
+  right: 8px;
+  bottom: 12px;
   z-index: 45;
-  width: 360px;
+  width: 408px;
   display: flex;
   min-height: 0;
 }
@@ -792,20 +809,19 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1024px) {
-  .map-page {
-    grid-template-columns: minmax(0, 1fr);
+  .map-region {
+    left: 16px;
   }
 
   .member-panel {
     position: fixed;
-    top: var(--topbar-h);
-    left: 0;
-    bottom: 0;
+    top: calc(var(--topbar-h) + 12px);
+    left: 12px;
+    bottom: 12px;
     z-index: 710;
-    width: min(340px, 88vw);
-    padding-top: 24px;
+    width: min(320px, 86vw);
     box-shadow: 24px 0 70px -40px rgba(28, 28, 30, 0.5);
-    transform: translateX(-105%);
+    transform: translateX(calc(-100% - 24px));
     transition: transform 0.26s var(--ease-out);
   }
 

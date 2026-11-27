@@ -76,26 +76,15 @@ function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '')
 }
 
-function isLocalHttpHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  if (host === 'localhost' || host === '::1' || host.endsWith('.localhost')) return true
-  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
-  if (!ipv4) return false
-  const [a, b] = [Number(ipv4[1]), Number(ipv4[2])]
-  if ([a, b, Number(ipv4[3]), Number(ipv4[4])].some((part) => part > 255)) return false
-  return (
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168)
-  )
-}
-
 /**
- * Advanced server override validation. Passwords must never be posted to an
- * arbitrary plaintext host, so HTTP is limited to same-origin URLs and (in
- * development) localhost/private LAN addresses. Everything else must be HTTPS.
+ * Advanced server override validation. In production, passwords must never be
+ * posted to an arbitrary plaintext host, so plaintext HTTP is limited to
+ * same-origin URLs; everything else must be HTTPS.
+ *
+ * During local development the developer explicitly chooses the API host, so
+ * any http(s) address is accepted (self-hosted boxes on a public IP often have
+ * no TLS yet). The relaxed rule is compiled against `import.meta.env.DEV` and
+ * therefore never applies to a production build.
  */
 export function validateApiBase(
   input: string,
@@ -142,13 +131,8 @@ export function validateApiBase(
 
   const sameOrigin = Boolean(currentOrigin) && url.origin === currentOrigin
   const dev = options.dev ?? import.meta.env.DEV
-  if (url.protocol === 'http:' && !sameOrigin) {
-    if (!dev) {
-      return { ok: false, error: '生产环境只允许 HTTPS 或同源地址' }
-    }
-    if (!isLocalHttpHost(url.hostname)) {
-      return { ok: false, error: 'HTTP 仅允许 localhost 或内网开发地址，请改用 HTTPS' }
-    }
+  if (url.protocol === 'http:' && !sameOrigin && !dev) {
+    return { ok: false, error: '生产环境只允许 HTTPS 或同源地址' }
   }
 
   return {

@@ -99,13 +99,6 @@ async function submit(): Promise<void> {
   }
 }
 
-async function demoLogin(): Promise<void> {
-  if (!demo.value) return
-  username.value = demo.value.username
-  password.value = demo.value.password
-  await submit()
-}
-
 function saveServer(): void {
   serverHint.value = ''
   const validation = setApiBaseOverride(serverAddress.value)
@@ -120,11 +113,7 @@ function saveServer(): void {
 </script>
 
 <template>
-  <AuthLayout
-    eyebrow="WELCOME BACK · 登录"
-    title="欢迎回来"
-    subtitle="登录后，看看家人此刻在哪。位置只对家庭成员可见。"
-  >
+  <AuthLayout title="欢迎回来">
     <form class="auth-form" novalidate @submit.prevent="submit">
       <div v-if="error" class="alert alert--error" role="alert">
         <Icon name="alert" :size="16" />
@@ -197,7 +186,7 @@ function saveServer(): void {
           @input="serverError = ''"
         />
         <p class="field__hint">
-          仅支持 HTTPS；开发环境下可使用 localhost 或内网 HTTP。保存的地址会在退出登录时清除。
+          开发环境可填写任意 http(s) 地址（含公网 IP / 域名）；生产构建只允许 HTTPS 或同源地址。保存的地址会在退出登录时清除。
         </p>
         <button type="button" class="link-btn" @click="saveServer">保存地址</button>
         <p v-if="serverError" class="field__error" role="alert">{{ serverError }}</p>
@@ -209,22 +198,6 @@ function saveServer(): void {
         {{ submitting ? '正在登录…' : '登录' }}
       </button>
     </form>
-
-    <div v-if="demo" class="demo-card">
-      <div class="demo-card__head">
-        <span class="chip chip--teal">演示模式</span>
-        <span class="micro">SEEDED DATA</span>
-      </div>
-      <p class="demo-card__copy">
-        无需服务器。演示账号 <code>{{ demo.username }}</code> /
-        <code>{{ demo.password }}</code>，内置{{ demo.familyName }}
-        {{ demo.memberCount }} 位成员。
-      </p>
-      <button type="button" class="btn btn--sm" :disabled="submitting" @click="demoLogin">
-        一键体验
-        <Icon name="arrow-right" :size="14" />
-      </button>
-    </div>
 
     <p class="auth-alt">
       还没有账号？
@@ -279,52 +252,6 @@ function saveServer(): void {
   min-height: 42px;
   font-size: 14px;
   background: #fff;
-}
-
-.demo-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 9px;
-  margin-top: 20px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  background: #f4fdfb;
-  box-shadow: inset 0 0 0 1px rgba(195, 250, 245, 0.9);
-}
-
-.demo-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  gap: 12px;
-}
-
-.demo-card__head .micro {
-  font-size: 8.5px;
-  color: #7fa7a3;
-}
-
-.demo-card__copy {
-  color: var(--slate);
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-
-.demo-card__copy code {
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: rgba(195, 250, 245, 0.75);
-  color: var(--teal-ink);
-  font-family: 'SFMono-Regular', 'Cascadia Code', Consolas, monospace;
-  font-size: 11.5px;
-}
-
-.demo-card .btn {
-  min-height: 30px;
-  font-size: 12px;
-  padding: 0 10px;
 }
 
 .auth-alt {

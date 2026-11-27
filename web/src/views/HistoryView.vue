@@ -10,7 +10,6 @@ import { copyText } from '@/lib/clipboard'
 import { messageForError } from '@/lib/errors'
 import {
   clamp,
-  describeLocation,
   interpolateTrail,
   trailDistanceMeters,
 } from '@/lib/geo'
@@ -20,10 +19,10 @@ import {
   formatClock,
   formatDuration,
   formatKm,
-  fullDateLabel,
   rangeForDate,
   todayValue,
 } from '@/lib/format'
+import { usePlaceLabel } from '@/composables/usePlaceLabel'
 import Avatar from '@/components/Avatar.vue'
 import HistoryMap from '@/components/HistoryMap.vue'
 import Icon from '@/components/Icon.vue'
@@ -35,7 +34,6 @@ const family = useFamilyStore()
 const ui = useUiStore()
 
 const today = todayValue()
-const yesterday = addDays(today, -1)
 const SPEEDS = [1, 2, 4] as const
 const BASE_DURATION_SECONDS = 32
 
@@ -66,19 +64,13 @@ const avatarId = computed(
   () => member.value?.userId ?? device.value?.userId ?? deviceId.value,
 )
 const selectedDateLabel = computed(() => formatDateLabel(date.value))
-const fullDateText = computed(() => fullDateLabel(date.value))
 const isToday = computed(() => date.value === today)
-const isYesterday = computed(() => date.value === yesterday)
 const nextDisabled = computed(() => date.value >= today)
 const pointCountLabel = computed(() => `${points.value.length} 个定位点`)
 
 const currentSample = computed(() => interpolateTrail(points.value, progress.value))
 const currentPoint = computed(() => currentSample.value.point)
-const currentAddress = computed(() => {
-  const point = currentPoint.value
-  if (!point) return '暂无轨迹数据'
-  return describeLocation(point.lat, point.lng)
-})
+const { label: currentAddress } = usePlaceLabel(currentPoint, { empty: '暂无轨迹数据' })
 const currentTimeIso = computed(() => {
   const first = points.value[0]
   const last = points.value[points.value.length - 1]
@@ -256,102 +248,98 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="history-page">
-    <header class="history-head">
-      <div class="history-head__identity">
-        <button
-          type="button"
-          class="btn btn--icon btn--ghost back-button"
-          aria-label="返回家庭地图"
-          @click="goBack"
-        >
-          <Icon name="arrow-left" :size="19" />
-        </button>
-        <Avatar :name="nickname" :id="avatarId" :size="46" />
-        <div class="history-head__titles">
-          <p class="micro">HISTORY · 历史轨迹</p>
-          <h1 class="history-title">{{ nickname }}的轨迹</h1>
-          <p class="history-subtitle">
-            {{ fullDateText }} · {{ loading ? '正在加载…' : pointCountLabel }}
-          </p>
-        </div>
-      </div>
-
-      <div class="history-head__aside">
-        <div class="date-nav" role="group" aria-label="选择日期">
-          <button
-            type="button"
-            class="date-nav__arrow"
-            aria-label="前一天"
-            @click="shiftDate(-1)"
-          >
-            <Icon name="chevron-left" :size="17" />
-          </button>
-          <button
-            type="button"
-            class="date-chip"
-            :class="{ 'is-active': isToday }"
-            @click="setDate(today)"
-          >
-            今天
-          </button>
-          <button
-            type="button"
-            class="date-chip"
-            :class="{ 'is-active': isYesterday }"
-            @click="setDate(yesterday)"
-          >
-            昨天
-          </button>
-          <input
-            type="date"
-            class="date-input"
-            :value="date"
-            :max="today"
-            aria-label="选择历史日期"
-            @change="onDateInput"
-          />
-          <button
-            type="button"
-            class="date-nav__arrow"
-            aria-label="后一天"
-            :disabled="nextDisabled"
-            @click="shiftDate(1)"
-          >
-            <Icon name="chevron-right" :size="17" />
-          </button>
-        </div>
-
-        <div v-if="points.length && !loading" class="history-stats">
-          <div class="history-stat">
-            <span class="micro">里程</span>
-            <strong>{{ formatKm(routeDistance) }}</strong>
-          </div>
-          <div class="history-stat">
-            <span class="micro">时长</span>
-            <strong>{{ formatDuration(routeDuration) }}</strong>
-          </div>
-          <div class="history-stat">
-            <span class="micro">时间段</span>
-            <strong>{{ startClock }} — {{ endClock }}</strong>
-          </div>
-        </div>
-      </div>
-    </header>
-
-    <div class="history-map-card">
+    <div class="map-card">
       <HistoryMap :points="points" :progress="progress" />
 
-      <div v-if="loading" class="history-overlay history-overlay--loading" role="status">
+      <div class="map-bar">
+        <div class="map-bar__left">
+          <button
+            type="button"
+            class="back-button"
+            aria-label="返回家庭地图"
+            @click="goBack"
+          >
+            <Icon name="arrow-left" :size="16" />
+          </button>
+          <span class="map-bar__back-label">返回地图</span>
+          <span class="map-bar__divider" aria-hidden="true" />
+          <Avatar :name="nickname" :id="avatarId" :size="30" />
+          <span class="map-bar__name">{{ nickname }}</span>
+          <div class="date-controls" role="group" aria-label="选择日期">
+            <button type="button" class="date-arrow" aria-label="前一天" @click="shiftDate(-1)">
+              <Icon name="chevron-left" :size="14" />
+            </button>
+            <label class="date-chip">
+              <Icon name="calendar" :size="13" />
+              <span>{{ selectedDateLabel }}</span>
+              <input
+                type="date"
+                class="date-input"
+                :value="date"
+                :max="today"
+                aria-label="选择历史日期"
+                @change="onDateInput"
+              />
+            </label>
+            <button
+              type="button"
+              class="date-arrow"
+              aria-label="后一天"
+              :disabled="nextDisabled"
+              @click="shiftDate(1)"
+            >
+              <Icon name="chevron-right" :size="14" />
+            </button>
+          </div>
+        </div>
+
+        <div class="map-bar__right">
+          <span class="map-bar__meta">
+            {{ loading ? '正在加载…' : pointCountLabel }} · {{ startClock }}–{{ endClock }}
+          </span>
+          <button
+            type="button"
+            class="btn btn--sm share-btn"
+            :disabled="!currentPoint"
+            @click="copyCurrentAddress"
+          >
+            <Icon name="copy" :size="13" />
+            复制当前地址
+          </button>
+        </div>
+      </div>
+
+      <aside v-if="points.length && !loading" class="overview-card">
+        <div class="overview-head">
+          <span class="overview-title">轨迹概览</span>
+          <span class="overview-count">{{ pointCountLabel }}</span>
+        </div>
+        <div class="overview-row">
+          <span>里程</span>
+          <strong>{{ formatKm(routeDistance) }}</strong>
+        </div>
+        <div class="overview-row">
+          <span>时长</span>
+          <strong>{{ formatDuration(routeDuration) }}</strong>
+        </div>
+        <div class="overview-row">
+          <span>首末</span>
+          <strong>{{ startClock }} – {{ endClock }}</strong>
+        </div>
+      </aside>
+
+      <div
+        v-if="loading"
+        class="history-overlay history-overlay--loading"
+        role="status"
+      >
         <span class="history-loading-pill">
           <span class="spinner" />
           正在加载轨迹…
         </span>
       </div>
 
-      <div
-        v-else-if="accessDenied"
-        class="history-overlay"
-      >
+      <div v-else-if="accessDenied" class="history-overlay">
         <div class="history-state-card">
           <StateBlock
             tone="danger"
@@ -395,38 +383,12 @@ onBeforeUnmount(() => {
           />
         </div>
       </div>
-    </div>
 
-    <footer class="history-timeline">
-      <div class="timeline-controls">
-        <button
-          type="button"
-          class="play-button"
-          :disabled="!canPlay"
-          :aria-label="playing ? '暂停回放' : '播放轨迹'"
-          @click="togglePlayback"
-        >
-          <Icon :name="playing ? 'pause' : 'play'" :size="20" />
-        </button>
-        <div class="speed-group" role="group" aria-label="回放倍速">
-          <button
-            v-for="option in SPEEDS"
-            :key="option"
-            type="button"
-            class="speed-button"
-            :class="{ 'is-active': speed === option }"
-            :aria-pressed="speed === option"
-            @click="setSpeed(option)"
-          >
-            {{ option }}x
-          </button>
-        </div>
-      </div>
-
-      <div class="timeline-track">
-        <div class="timeline-caption">
-          <span class="timeline-time tabular">
-            {{ currentTimeIso ? formatClock(currentTimeIso) : '—' }}
+      <footer v-if="points.length && !loading" class="timeline-card">
+        <div class="timeline-info">
+          <span class="timeline-status">
+            {{ playing ? '正在回放' : progress >= 1 ? '回放完成' : '已暂停' }}
+            <strong class="tabular">{{ currentTimeIso ? formatClock(currentTimeIso) : '—' }}</strong>
           </span>
           <button
             type="button"
@@ -437,226 +399,260 @@ onBeforeUnmount(() => {
           >
             {{ currentAddress }}
           </button>
-          <span class="timeline-percent tabular">{{ progressPercent }}%</span>
+          <div class="speed-group" role="group" aria-label="回放倍速">
+            <button
+              v-for="option in SPEEDS"
+              :key="option"
+              type="button"
+              class="speed-button"
+              :class="{ 'is-active': speed === option }"
+              :aria-pressed="speed === option"
+              @click="setSpeed(option)"
+            >
+              {{ option }}x
+            </button>
+          </div>
         </div>
-        <input
-          class="range timeline-range"
-          type="range"
-          min="0"
-          max="1000"
-          step="1"
-          :value="Math.round(progress * 1000)"
-          :disabled="!points.length || loading"
-          :style="{ '--progress': `${progressPercent}%` }"
-          :aria-valuetext="currentTimeIso ? formatClock(currentTimeIso) : '无轨迹'"
-          aria-label="轨迹回放进度"
-          @input="onScrub"
-        />
-        <div class="timeline-ends">
-          <span>{{ startClock }}</span>
-          <span class="timeline-ends__hint">
-            {{ points.length ? '拖动时间轴查看沿途位置' : '选择日期查看轨迹' }}
-          </span>
-          <span>{{ endClock }}</span>
-        </div>
-      </div>
 
-      <div class="timeline-meta">
-        <p class="micro">PLAYBACK</p>
-        <p class="timeline-meta__date">{{ selectedDateLabel }}</p>
-        <p class="timeline-meta__hint">
-          {{ playing ? `${speed}x 回放中` : '1x · 2x · 4x' }}
-        </p>
-      </div>
-    </footer>
+        <div class="timeline-controls">
+          <button
+            type="button"
+            class="play-button"
+            :disabled="!canPlay"
+            :aria-label="playing ? '暂停回放' : '播放轨迹'"
+            @click="togglePlayback"
+          >
+            <Icon :name="playing ? 'pause' : 'play'" :size="15" />
+          </button>
+          <span class="timeline-end tabular">{{ startClock }}</span>
+          <input
+            class="range timeline-range"
+            type="range"
+            min="0"
+            max="1000"
+            step="1"
+            :value="Math.round(progress * 1000)"
+            :disabled="!points.length || loading"
+            :style="{ '--progress': `${progressPercent}%` }"
+            :aria-valuetext="currentTimeIso ? formatClock(currentTimeIso) : '无轨迹'"
+            aria-label="轨迹回放进度"
+            @input="onScrub"
+          />
+          <span class="timeline-end tabular">{{ endClock }}</span>
+          <span class="timeline-distance">全程 {{ formatKm(routeDistance) }}</span>
+        </div>
+      </footer>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .history-page {
-  display: grid;
-  grid-template-rows: auto minmax(280px, 1fr) auto;
-  gap: 16px;
   height: calc(100dvh - var(--topbar-h));
   min-height: 0;
-  padding: 24px 0 max(20px, env(safe-area-inset-bottom));
+  padding: 16px;
+  background: var(--canvas);
+}
+
+.map-card {
+  position: relative;
+  height: 100%;
   overflow: hidden;
+  border-radius: var(--r-panel-lg);
+  background: var(--map-base);
+  box-shadow: var(--panel-shadow);
 }
 
-.history-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
-  padding: 0 32px;
-}
+/* ---- Floating top bar --------------------------------------------------- */
 
-.history-head__identity {
+.map-bar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 30;
   display: flex;
   align-items: center;
-  gap: 14px;
-  min-width: 0;
+  justify-content: space-between;
+  gap: 16px;
+  pointer-events: none;
+}
+
+.map-bar__left,
+.map-bar__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 0 0 1px var(--ring), 0 12px 28px -20px rgba(28, 28, 30, 0.4);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
 }
 
 .back-button {
-  flex: 0 0 auto;
-  margin-right: 2px;
-  color: var(--slate);
-}
-
-.back-button:hover {
-  color: var(--ink);
-}
-
-.history-head__titles {
-  min-width: 0;
-}
-
-.history-title {
-  margin-top: 4px;
-  font-size: 30px;
-  line-height: 1.18;
-  letter-spacing: -0.028em;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.history-subtitle {
-  margin-top: 4px;
-  color: var(--ink-muted);
-  font-size: 12.5px;
-  line-height: 1.5;
-}
-
-.history-head__aside {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-}
-
-.date-nav {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 12px;
-  background: var(--white);
-  box-shadow: var(--ring-shadow);
-}
-
-.date-nav__arrow {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  color: var(--slate);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--surface-soft);
+  color: var(--ink);
   transition: background-color 0.14s;
 }
 
-.date-nav__arrow:hover:not(:disabled) {
+.back-button:hover {
+  background: var(--surface-sunken);
+}
+
+.map-bar__back-label {
+  color: var(--slate);
+  font-size: 11.5px;
+}
+
+.map-bar__divider {
+  width: 1px;
+  height: 20px;
+  background: var(--input-line);
+}
+
+.map-bar__name {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.date-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+}
+
+.date-arrow {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: var(--slate);
+}
+
+.date-arrow:hover:not(:disabled) {
   background: var(--surface-soft);
   color: var(--ink);
 }
 
-.date-nav__arrow:disabled {
+.date-arrow:disabled {
   opacity: 0.3;
 }
 
 .date-chip {
-  height: 32px;
-  padding: 0 11px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
   border-radius: 8px;
-  color: var(--slate);
-  font-size: 12.5px;
-  font-weight: 500;
-  transition:
-    background-color 0.14s,
-    color 0.14s;
-}
-
-.date-chip:hover {
   background: var(--surface-soft);
   color: var(--ink);
-}
-
-.date-chip.is-active {
-  background: var(--blue-soft);
-  color: var(--blue-pressed);
+  font-size: 11px;
   font-weight: 600;
+  cursor: pointer;
+  overflow: hidden;
 }
 
 .date-input {
-  height: 32px;
-  width: 142px;
-  padding: 0 8px;
-  border: 1px solid var(--input-line);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-  font-size: 12.5px;
-  font-family: var(--font-sans);
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
-.date-input:focus {
-  outline: none;
-  border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(91, 118, 254, 0.12);
-}
-
-.history-stats {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  padding-right: 4px;
-}
-
-.history-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.history-stat .micro {
-  font-size: 9px;
-}
-
-.history-stat strong {
-  font-size: 13.5px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  font-variant-numeric: tabular-nums;
+.map-bar__meta {
+  color: var(--ink-muted);
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
-.history-map-card {
-  position: relative;
-  min-height: 0;
-  margin: 0 32px;
-  border-radius: var(--r-panel);
-  overflow: hidden;
-  box-shadow: var(--ring-shadow);
-  background: var(--map-base);
+.share-btn {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
 }
+
+/* ---- Overview ----------------------------------------------------------- */
+
+.overview-card {
+  position: absolute;
+  top: 76px;
+  left: 16px;
+  z-index: 25;
+  width: 260px;
+  padding: 18px;
+  border-radius: 18px;
+  background: var(--white);
+  box-shadow: var(--panel-shadow);
+}
+
+.overview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.overview-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.overview-count {
+  color: var(--ink-muted);
+  font-size: 10.5px;
+}
+
+.overview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+}
+
+.overview-row span {
+  color: var(--slate);
+  font-size: 11px;
+}
+
+.overview-row strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Overlays ----------------------------------------------------------- */
 
 .history-overlay {
   position: absolute;
   inset: 0;
-  z-index: 6;
+  z-index: 40;
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(245, 246, 248, 0.62);
+  background: rgba(245, 246, 248, 0.55);
   backdrop-filter: blur(2px);
 }
 
 .history-overlay--loading {
+  z-index: 29;
+  padding: 0;
   background: transparent;
   backdrop-filter: none;
   pointer-events: none;
@@ -666,35 +662,92 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 15px;
+  padding: 9px 14px;
   border-radius: var(--r-pill);
   background: rgba(255, 255, 255, 0.96);
-  border: 1px solid var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
   color: var(--slate);
   font-size: 12px;
-  box-shadow: 0 6px 24px -18px rgba(28, 28, 30, 0.4);
 }
 
 .history-state-card {
   width: min(430px, 100%);
   border-radius: var(--r-panel);
   background: var(--white);
-  box-shadow:
-    0 0 0 1px var(--ring),
-    var(--float-shadow);
-  pointer-events: auto;
+  box-shadow: var(--panel-shadow);
 }
 
-.history-timeline {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 24px;
-  margin: 0 32px;
-  padding: 16px 22px;
-  border-radius: var(--r-panel);
+/* ---- Timeline ----------------------------------------------------------- */
+
+.timeline-card {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 28;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 20px;
+  border-radius: 18px;
   background: var(--white);
-  box-shadow: var(--ring-shadow);
+  box-shadow: var(--panel-shadow);
+}
+
+.timeline-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.timeline-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.timeline-status strong {
+  font-weight: 600;
+  color: var(--blue);
+}
+
+.timeline-address {
+  color: var(--slate);
+  font-size: 11.5px;
+  border-radius: 5px;
+  padding: 2px 4px;
+}
+
+.timeline-address:hover:not(:disabled) {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.speed-group {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.speed-button {
+  height: 24px;
+  padding: 0 12px;
+  border-radius: 7px;
+  color: var(--slate);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.speed-button.is-active {
+  background: var(--white);
+  color: var(--blue);
+  box-shadow: 0 1px 2px rgba(28, 28, 30, 0.08);
 }
 
 .timeline-controls {
@@ -706,250 +759,67 @@ onBeforeUnmount(() => {
 .play-button {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
   border-radius: 50%;
   background: var(--blue);
-  color: #fff;
-  transition:
-    background-color 0.16s,
-    transform 0.12s;
+  color: var(--white);
+  transition: background-color 0.16s;
 }
 
 .play-button:hover:not(:disabled) {
-  background: var(--blue-pressed);
-}
-
-.play-button:active:not(:disabled) {
-  transform: scale(0.96);
+  background: var(--blue-hover);
 }
 
 .play-button:disabled {
-  background: #eceef3;
-  color: #a5a8b5;
+  opacity: 0.4;
 }
 
-.speed-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--surface-soft);
-}
-
-.speed-button {
-  min-width: 30px;
-  height: 26px;
-  padding: 0 6px;
-  border-radius: 6px;
+.timeline-end {
   color: var(--ink-muted);
   font-size: 11px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  transition:
-    background-color 0.14s,
-    color 0.14s;
 }
 
-.speed-button:hover {
-  color: var(--ink);
-}
-
-.speed-button.is-active {
-  background: #fff;
-  color: var(--ink);
-  box-shadow: 0 1px 3px rgba(28, 28, 30, 0.08);
-}
-
-.timeline-track {
-  min-width: 0;
-}
-
-.timeline-caption {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.timeline-time {
-  flex: 0 0 auto;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.timeline-address {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.timeline-distance {
+  color: var(--ink-muted);
+  font-size: 11px;
   white-space: nowrap;
-  color: var(--slate);
-  font-size: 13px;
-  text-align: left;
-  border-radius: 4px;
-  padding: 1px 3px;
-}
-
-.timeline-address:hover:not(:disabled) {
-  background: var(--surface-soft);
-  color: var(--ink);
-}
-
-.timeline-address:disabled {
-  color: var(--ink-muted);
-}
-
-.timeline-percent {
-  margin-left: auto;
-  flex: 0 0 auto;
-  color: var(--ink-muted);
-  font-size: 11px;
 }
 
 .timeline-range {
-  margin-top: 2px;
-}
-
-.timeline-ends {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--ink-muted);
-  font-size: 10px;
-  line-height: 1.4;
-  font-variant-numeric: tabular-nums;
-}
-
-.timeline-ends__hint {
-  color: #b0b3bd;
-  letter-spacing: 0.01em;
-}
-
-.timeline-meta {
-  min-width: 130px;
-  text-align: right;
-}
-
-.timeline-meta__date {
-  margin-top: 4px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.timeline-meta__hint {
-  margin-top: 2px;
-  color: var(--ink-muted);
-  font-size: 10.5px;
-}
-
-@media (max-width: 1100px) {
-  .history-head {
-    align-items: flex-start;
-  }
-
-  .history-head__aside {
-    align-items: flex-start;
-  }
-
-  .history-stats {
-    padding-left: 4px;
-  }
-
-  .timeline-meta {
-    display: none;
-  }
-
-  .history-timeline {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 @media (max-width: 900px) {
   .history-page {
-    display: flex;
+    padding: 12px;
+  }
+
+  .map-bar {
     flex-direction: column;
-    height: auto;
-    min-height: calc(100dvh - var(--topbar-h));
-    padding: 18px 0 28px;
-    overflow: visible;
-    gap: 14px;
+    align-items: stretch;
+    gap: 8px;
   }
 
-  .history-head {
-    padding: 0 18px;
-    gap: 16px;
-  }
-
-  .history-map-card {
-    margin: 0 18px;
-    height: 360px;
-    flex: 0 0 auto;
-  }
-
-  .history-timeline {
-    margin: 0 18px;
-    padding: 14px 16px;
-    gap: 14px;
-    grid-template-columns: 1fr;
-  }
-
-  .timeline-controls {
+  .map-bar__right {
     justify-content: space-between;
   }
 
-  .timeline-caption {
-    margin-top: 4px;
+  .overview-card {
+    display: none;
   }
 
-  .history-head__identity {
-    width: 100%;
-  }
-}
-
-@media (max-width: 600px) {
-  .history-head {
-    padding: 0 16px;
+  .timeline-card {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    padding: 12px 14px;
   }
 
-  .history-title {
-    font-size: 25px;
-  }
-
-  .history-map-card {
-    margin: 0 12px;
-    height: 320px;
-  }
-
-  .history-timeline {
-    margin: 0 12px;
-    border-radius: 16px;
-  }
-
-  .date-nav {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .date-input {
-    width: 132px;
-  }
-
-  .history-stats {
-    width: 100%;
-    justify-content: space-between;
-    gap: 10px;
-  }
-
-  .history-overlay {
-    padding: 14px;
-  }
-
-  .history-loading-pill {
-    font-size: 11.5px;
+  .timeline-distance {
+    display: none;
   }
 }
 </style>

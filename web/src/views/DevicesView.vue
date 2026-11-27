@@ -11,6 +11,7 @@ import { copyText } from '@/lib/clipboard'
 import { messageForError } from '@/lib/errors'
 import { relativeTime } from '@/lib/format'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import Avatar from '@/components/Avatar.vue'
 import Icon from '@/components/Icon.vue'
 import ModalSheet from '@/components/ModalSheet.vue'
 import StateBlock from '@/components/StateBlock.vue'
@@ -221,13 +222,13 @@ function goMap(): void {
 </script>
 
 <template>
-  <div class="page page--wide devices-page">
-    <header class="page-head">
+  <div class="page-shell">
+    <div class="page-card devices-page">
+    <header class="page-head devices-head">
       <div class="page-head__meta">
-        <p class="micro">DEVICES · 设备</p>
-        <h1 class="display-page">设备</h1>
+        <h1 class="page-title">设备管理</h1>
         <p class="page-sub">
-          {{ devices.length }} 台设备 · {{ onlineCount }} 台在线。设备令牌只显示一次，请在自己的手机上妥善保存。
+          {{ devices.length }} 台设备 · {{ onlineCount }} 台在线
         </p>
       </div>
       <div class="page-head__actions">
@@ -237,16 +238,6 @@ function goMap(): void {
         </button>
       </div>
     </header>
-
-    <div class="devices-note">
-      <span class="devices-note__icon">
-        <Icon name="info" :size="17" />
-      </span>
-      <p>
-        <strong>解绑后立即生效。</strong>
-        该设备会停止位置上报，需要重新在手机上登录并绑定才能恢复。同一成员可以绑定多台设备。
-      </p>
-    </div>
 
     <div v-if="family.devicesError && devices.length" class="alert alert--warn devices-warning">
       <Icon name="wifi-off" :size="16" />
@@ -346,7 +337,16 @@ function goMap(): void {
                   </div>
                 </div>
               </td>
-              <td>{{ ownerName(device) }}</td>
+              <td>
+                <span class="owner-cell">
+                  <Avatar
+                    :name="ownerName(device)"
+                    :id="device.userId ?? device.id"
+                    :size="24"
+                  />
+                  {{ ownerName(device) }}
+                </span>
+              </td>
               <td>
                 <span class="cell-strong device-model">{{ device.model }}</span>
                 <span class="cell-sub">{{ device.osVersion }}</span>
@@ -555,12 +555,38 @@ function goMap(): void {
         {{ unbindError }}
       </p>
     </ConfirmDialog>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.owner-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
 .devices-page {
-  padding-bottom: 64px;
+  display: flex;
+  flex-direction: column;
+}
+
+.devices-head {
+  align-items: center;
+  margin-bottom: 22px;
+}
+
+.page-title {
+  font-size: 48px;
+  line-height: 1.12;
+  letter-spacing: -0.028em;
+  font-weight: 500;
+}
+
+.devices-head .page-sub {
+  margin-top: 8px;
+  font-size: 13px;
 }
 
 .devices-note {

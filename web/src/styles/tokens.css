@@ -38,6 +38,8 @@
   --surface-soft: #f7f8fa;
   --surface-sunken: #f2f3f6;
   --map-base: #f5f6f8;
+  --canvas: #f5f6f8;
+  --line-soft: #f0f1f4;
 
   /* ---- Radii ------------------------------------------------------------- */
   --r-btn: 8px;
@@ -51,6 +53,12 @@
      for things that actually float above the canvas. */
   --ring-shadow: 0 0 0 1px var(--ring);
   --float-shadow: 0 24px 64px -36px rgba(28, 28, 30, 0.28);
+  --panel-shadow:
+    0 0 0 1px var(--ring),
+    0 18px 44px -24px rgba(28, 28, 30, 0.2);
+  --panel-shadow-lifted:
+    0 0 0 1px var(--ring),
+    0 20px 50px -22px rgba(28, 28, 30, 0.26);
   --marker-shadow: 0 6px 18px -10px rgba(28, 28, 30, 0.38);
 
   /* ---- Type -------------------------------------------------------------- */

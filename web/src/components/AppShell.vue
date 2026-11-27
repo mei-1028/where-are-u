@@ -105,9 +105,26 @@ onBeforeUnmount(() => {
   <div class="app-shell">
     <header class="topbar">
       <div class="topbar__inner">
-        <RouterLink to="/" class="brand" aria-label="你在哪 · 返回家庭地图">
-          <LogoMark :size="30" wordmark />
-        </RouterLink>
+        <div class="brand-group">
+          <RouterLink to="/" class="brand" aria-label="你在哪 · 返回家庭地图">
+            <LogoMark :size="30" wordmark />
+          </RouterLink>
+
+          <RouterLink
+            v-if="family.family"
+            to="/family"
+            class="family-chip"
+            :title="`${family.familyName} · ${onlineLabel}`"
+          >
+            <span class="family-chip__name">{{ family.familyName }}</span>
+            <Icon name="chevron-down" :size="12" class="family-chip__chevron" />
+          </RouterLink>
+
+          <span v-if="family.family" class="online-status">
+            <span class="status-dot" :class="family.onlineCount ? 'status-dot--online' : ''" />
+            {{ onlineLabel || '等待同步' }}
+          </span>
+        </div>
 
         <nav class="nav" aria-label="主导航">
           <RouterLink
@@ -119,39 +136,29 @@ onBeforeUnmount(() => {
             :aria-current="isActive(item.names) ? 'page' : undefined"
             :title="item.label"
           >
-            <Icon :name="item.icon" :size="18" />
+            <Icon :name="item.icon" :size="17" />
             <span class="nav__label">{{ item.label }}</span>
           </RouterLink>
         </nav>
 
         <div class="topbar__right">
-          <RouterLink
-            v-if="family.family"
-            to="/family"
-            class="family-chip"
-            :title="`${family.familyName} · ${onlineLabel}`"
-          >
-            <span class="family-chip__name">{{ family.familyName }}</span>
-            <span class="family-chip__sep" aria-hidden="true" />
-            <span class="family-chip__online">
-              <span class="status-dot" :class="family.onlineCount ? 'status-dot--online' : ''" />
-              {{ onlineLabel || '等待同步' }}
-            </span>
-          </RouterLink>
-
           <button
             v-if="isMap"
             type="button"
-            class="btn btn--icon btn--ghost refresh-btn"
+            class="refresh-btn"
             :disabled="refreshBusy"
             :aria-label="refreshBusy ? '正在刷新位置' : '刷新位置'"
             :title="syncLabel || '刷新位置'"
             @click="refresh"
           >
             <span class="refresh-icon" :class="{ 'is-spinning': refreshBusy }">
-              <Icon name="refresh" :size="18" />
+              <Icon name="refresh" :size="15" />
             </span>
           </button>
+
+          <span v-if="isMap && syncLabel" class="sync-hint">{{ syncLabel }}</span>
+
+          <span class="topbar__divider" aria-hidden="true" />
 
           <div ref="menuRef" class="user">
             <button
@@ -165,9 +172,10 @@ onBeforeUnmount(() => {
               <Avatar
                 :name="auth.user?.nickname ?? '我'"
                 :id="auth.user?.id"
-                :size="32"
+                :size="30"
               />
-              <Icon name="chevron-down" :size="14" class="user__chevron" />
+              <span class="user__name">{{ auth.user?.nickname ?? '我' }}</span>
+              <Icon name="chevron-down" :size="13" class="user__chevron" />
             </button>
 
             <Transition name="menu">
@@ -214,7 +222,7 @@ onBeforeUnmount(() => {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: var(--white);
+  background: var(--canvas);
 }
 
 .app-main {
@@ -227,41 +235,84 @@ onBeforeUnmount(() => {
   top: 0;
   z-index: 600;
   height: var(--topbar-h);
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--ring);
+  background: var(--white);
+  border-bottom: 1px solid var(--input-line);
 }
 
 .topbar__inner {
   height: 100%;
-  max-width: 1440px;
   margin: 0 auto;
   padding: 0 24px;
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 28px;
+}
+
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  border-radius: 10px;
+  border-radius: 8px;
   flex: 0 0 auto;
+}
+
+.family-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  transition: background-color 0.16s;
+}
+
+.family-chip:hover {
+  background: var(--surface-sunken);
+}
+
+.family-chip__chevron {
+  color: var(--slate);
+}
+
+.online-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--slate);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.online-status .status-dot {
+  width: 6px;
+  height: 6px;
 }
 
 .nav {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  flex: 0 0 auto;
 }
 
 .nav__item {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 38px;
-  padding: 0 12px;
-  border-radius: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
   color: var(--slate);
   font-size: 14px;
   font-weight: 500;
@@ -278,7 +329,7 @@ onBeforeUnmount(() => {
 
 .nav__item.is-active {
   background: var(--blue-soft);
-  color: var(--blue-pressed);
+  color: var(--blue);
 }
 
 .topbar__right {
@@ -289,43 +340,25 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.family-chip {
+.refresh-btn {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  height: 36px;
-  padding: 0 13px;
-  border-radius: var(--r-pill);
-  box-shadow: inset 0 0 0 1px var(--ring);
-  font-size: 12.5px;
-  white-space: nowrap;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--white);
+  box-shadow: inset 0 0 0 1px var(--input-line);
+  color: var(--ink);
   transition: background-color 0.16s;
 }
 
-.family-chip:hover {
+.refresh-btn:hover:not(:disabled) {
   background: var(--surface-soft);
 }
 
-.family-chip__name {
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.family-chip__sep {
-  width: 1px;
-  height: 14px;
-  background: var(--ring);
-}
-
-.family-chip__online {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--ink-muted);
-}
-
-.refresh-btn {
-  color: var(--slate);
+.refresh-btn:disabled {
+  opacity: 0.6;
 }
 
 .refresh-icon {
@@ -336,6 +369,18 @@ onBeforeUnmount(() => {
   animation: spin 0.8s linear infinite;
 }
 
+.sync-hint {
+  color: var(--ink-muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.topbar__divider {
+  width: 1px;
+  height: 24px;
+  background: var(--input-line);
+}
+
 .user {
   position: relative;
 }
@@ -343,18 +388,22 @@ onBeforeUnmount(() => {
 .user__button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 5px 3px 3px;
+  gap: 8px;
+  height: 32px;
+  padding: 0 4px 0 0;
   border-radius: var(--r-pill);
-  border: 1px solid transparent;
-  transition:
-    border-color 0.16s,
-    background-color 0.16s;
+  transition: opacity 0.16s;
 }
 
 .user__button:hover {
-  border-color: var(--ring);
-  background: var(--white);
+  opacity: 0.78;
+}
+
+.user__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
 }
 
 .user__chevron {
@@ -497,6 +546,12 @@ onBeforeUnmount(() => {
     gap: 4px;
   }
 
+  .sync-hint,
+  .topbar__divider,
+  .user__name {
+    display: none;
+  }
+
   .user__chevron {
     display: none;
   }
@@ -514,6 +569,10 @@ onBeforeUnmount(() => {
 
 @media (max-width: 480px) {
   .brand :deep(.logo-word) {
+    display: none;
+  }
+
+  .online-status {
     display: none;
   }
 

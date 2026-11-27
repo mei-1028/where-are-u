@@ -51,11 +51,6 @@ const inviteUrl = computed(() =>
 const onlineCount = computed(() => members.value.filter((member) => member.online).length)
 const loading = computed(() => family.loading && !family.family)
 const fatalError = computed(() => !family.family && Boolean(family.error))
-const roleLabel = computed(() => (isAdmin.value ? '管理员' : '成员'))
-const intro = computed(() => {
-  if (!family.family) return '正在加载家庭信息…'
-  return `${members.value.length || 0} 位家人 · ${onlineCount.value} 人在线 · 你是${roleLabel.value}`
-})
 
 const qrSvg = computed(() => {
   if (!inviteUrl.value) return ''
@@ -102,17 +97,6 @@ async function copyInviteCode(): Promise<void> {
   const ok = await copyText(inviteCode.value)
   if (ok) ui.toast('邀请码已复制', 'success')
   else ui.toast('复制失败，请长按选择邀请码', 'error')
-}
-
-async function copyInviteLink(): Promise<void> {
-  if (!inviteUrl.value) return
-  if (inviteExpired.value) {
-    ui.toast('邀请码已过期，请先重置', 'error')
-    return
-  }
-  const ok = await copyText(inviteUrl.value)
-  if (ok) ui.toast('邀请链接已复制', 'success')
-  else ui.toast('复制失败，请手动复制链接', 'error')
 }
 
 function openReset(): void {
@@ -165,18 +149,14 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="page family-page">
-    <header class="page-head">
+  <div class="page-shell">
+    <div class="page-card family-page">
+    <header class="page-head family-head">
       <div class="page-head__meta">
-        <p class="micro">FAMILY · 家庭</p>
-        <h1 class="display-page">{{ family.family?.name ?? '家庭' }}</h1>
-        <p class="page-sub">{{ intro }}</p>
+        <h1 class="page-title">家庭管理</h1>
+        <p class="page-sub">管理成员、邀请码与家庭信息。</p>
       </div>
       <div class="page-head__actions">
-        <span class="chip" :class="isAdmin ? 'chip--blue' : ''">
-          <Icon :name="isAdmin ? 'shield' : 'user'" :size="13" />
-          {{ roleLabel }}
-        </span>
         <button
           v-if="isAdmin"
           type="button"
@@ -363,6 +343,15 @@ onMounted(() => {
           </div>
         </section>
 
+        <div class="family-side">
+        <section class="card family-info-card">
+          <p class="card-label">家庭名称</p>
+          <p class="family-info__name">{{ family.family?.name ?? '家庭' }}</p>
+          <p class="family-info__meta">
+            {{ members.length }} 位成员 · {{ onlineCount }} 人在线
+          </p>
+        </section>
+
         <aside
           v-if="isAdmin"
           ref="inviteCard"
@@ -370,73 +359,41 @@ onMounted(() => {
           :class="{ 'is-expired': inviteExpired }"
           aria-label="邀请家人"
         >
-          <div class="invite-card__head">
-            <p class="micro">INVITE · 邀请家人</p>
-            <span class="invite-card__badge" :class="{ 'is-expired': inviteExpired }">
+          <div class="invite-head">
+            <span class="invite-label">邀请码</span>
+            <span class="invite-badge" :class="{ 'is-expired': inviteExpired }">
               {{ inviteExpired ? '已过期' : '24H' }}
             </span>
           </div>
-          <h2 class="invite-card__title">和家人一起</h2>
-          <p class="invite-card__copy">
-            {{
-              inviteExpired
-                ? '这个邀请码已经过期。重置后会生成新的 24 小时有效邀请码。'
-                : '邀请码 24 小时内有效。家人在注册时填写，或直接扫码进入注册页。'
-            }}
-          </p>
 
-          <div class="invite-code">
+          <div class="invite-code-row">
             <span class="invite-code__value">{{ inviteCode || '······' }}</span>
             <button
               type="button"
-              class="invite-code__copy"
-              aria-label="复制邀请码"
+              class="invite-copy"
               :disabled="!inviteCode || inviteExpired"
               @click="copyInviteCode"
             >
-              <Icon name="copy" :size="16" />
+              <Icon name="copy" :size="13" />
+              复制
             </button>
           </div>
 
-          <div class="invite-expiry" :class="{ 'is-expired': inviteExpired }">
-            <Icon name="clock" :size="13" />
-            <span>{{ inviteExpiryText }}</span>
-          </div>
-
-          <div v-if="inviteExpired" class="invite-expired" role="alert">
-            <Icon name="alert" :size="15" />
-            <span>邀请码已过期。重置后会生成新的 24 小时有效邀请码，已加入的家人不受影响。</span>
-          </div>
-
-          <div class="qr-frame" v-html="qrSvg" />
-          <p class="qr-caption">
-            {{ inviteExpired ? '邀请码已过期，请重置后分享' : '扫码注册并自动填写邀请码' }}
-          </p>
-
-          <div class="invite-card__actions">
-            <button
-              type="button"
-              class="btn btn--block invite-copy-btn"
-              :disabled="!inviteCode || inviteExpired"
-              @click="copyInviteCode"
-            >
-              <Icon name="copy" :size="15" />
-              复制邀请码
-            </button>
-            <div class="invite-card__links">
-              <button
-                type="button"
-                class="link-btn"
-                :disabled="!inviteUrl || inviteExpired"
-                @click="copyInviteLink"
-              >
-                复制邀请链接
-              </button>
-              <button type="button" class="link-btn invite-reset" @click="openReset">
+          <div class="qr-row">
+            <div class="qr-frame" v-html="qrSvg" />
+            <div class="qr-copy">
+              <p class="qr-copy__title">家人在 App 扫码加入</p>
+              <p class="qr-copy__meta">{{ inviteExpiryText }}</p>
+              <button type="button" class="qr-copy__link" @click="openReset">
                 重置邀请码
               </button>
             </div>
           </div>
+
+          <p v-if="inviteExpired" class="invite-expired" role="alert">
+            <Icon name="alert" :size="14" />
+            <span>邀请码已过期，请重置后分享。</span>
+          </p>
         </aside>
 
         <aside v-else ref="inviteCard" class="invite-card invite-card--restricted" aria-label="邀请权限提示">
@@ -453,13 +410,20 @@ onMounted(() => {
             <span>管理员可以移除成员、重置邀请码，并管理家庭设置。</span>
           </div>
         </aside>
+
+        <section class="card danger-mini">
+          <p class="danger-mini__title">危险区</p>
+          <RouterLink to="/settings" class="danger-mini__row">
+            <span class="danger-mini__label">
+              <Icon name="logout" :size="14" />
+              退出家庭
+            </span>
+            <Icon name="chevron-right" :size="14" />
+          </RouterLink>
+        </section>
+        </div>
       </div>
 
-      <p class="family-footer-note">
-        想退出家庭？前往
-        <RouterLink to="/settings" class="link-btn">设置 · 危险操作</RouterLink>
-        处理。
-      </p>
     </template>
 
     <ConfirmDialog
@@ -486,18 +450,102 @@ onMounted(() => {
         {{ removeError }}
       </p>
     </ConfirmDialog>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.family-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.card {
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--white);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.card-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.family-info__name {
+  margin-top: 6px;
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 500;
+}
+
+.family-info__meta {
+  margin-top: 4px;
+  color: var(--ink-muted);
+  font-size: 10.5px;
+}
+
+.danger-mini {
+  background: var(--red);
+  box-shadow: none;
+}
+
+.danger-mini__title {
+  color: var(--red-ink);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.danger-mini__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--red-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.danger-mini__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
 .family-page {
-  padding-bottom: 72px;
+  display: flex;
+  flex-direction: column;
+}
+
+.family-head {
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.page-title {
+  font-size: 48px;
+  line-height: 1.12;
+  letter-spacing: -0.028em;
+  font-weight: 500;
+}
+
+.family-head .page-sub {
+  margin-top: 8px;
+  font-size: 13px;
 }
 
 .family-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 336px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 28px;
   align-items: start;
 }
 
@@ -635,12 +683,10 @@ onMounted(() => {
 /* ---- Invite card -------------------------------------------------------- */
 
 .invite-card {
-  position: sticky;
-  top: calc(var(--topbar-h) + 24px);
-  padding: 26px;
-  border-radius: var(--r-panel);
-  background: var(--orange);
-  color: var(--orange-ink);
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--teal);
+  color: var(--teal-ink);
 }
 
 .invite-card__head {
@@ -651,7 +697,7 @@ onMounted(() => {
 }
 
 .invite-card .micro {
-  color: rgba(122, 67, 17, 0.66);
+  color: rgba(15, 95, 92, 0.66);
 }
 
 .invite-card.is-expired .invite-code__value,
@@ -761,10 +807,10 @@ onMounted(() => {
 }
 
 .qr-frame {
-  width: 164px;
-  height: 164px;
-  margin: 18px auto 0;
-  padding: 10px;
+  width: 108px;
+  height: 108px;
+  margin: 14px auto 0;
+  padding: 8px;
   border-radius: 12px;
   background: #fff;
 }
@@ -974,7 +1020,6 @@ onMounted(() => {
 
   .invite-card {
     position: static;
-    order: 2;
   }
 
   .family-page {
@@ -1013,5 +1058,122 @@ onMounted(() => {
   .members-invite-note {
     margin: 8px 16px 20px;
   }
+}
+
+/* Compact invite card (design W04) */
+.invite-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.invite-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.invite-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(15, 95, 92, 0.72);
+}
+
+.invite-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--teal-ink);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.invite-badge.is-expired {
+  background: var(--red);
+  color: var(--red-ink);
+}
+
+.invite-code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.invite-code__value {
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--teal-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.invite-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  background: var(--white);
+  color: var(--teal-ink);
+  font-size: 11px;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.invite-copy:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.qr-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.invite-card .qr-frame {
+  width: 88px;
+  height: 88px;
+  margin: 0;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--white);
+  flex: 0 0 auto;
+}
+
+.qr-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.qr-copy__title {
+  color: var(--teal-ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.qr-copy__meta {
+  color: rgba(15, 95, 92, 0.7);
+  font-size: 10px;
+}
+
+.qr-copy__link {
+  align-self: flex-start;
+  margin-top: 2px;
+  color: var(--teal-ink);
+  font-size: 10px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 </style>

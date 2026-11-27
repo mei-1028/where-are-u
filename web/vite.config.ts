@@ -15,6 +15,13 @@ export default defineConfig(({ command, mode }) => {
     )
   }
 
+  // Optional dev-only proxy. Point the browser at the same-origin "/api" path
+  // and let Vite forward to a remote server, which avoids CORS and mixed
+  // content entirely (handy when the server only allows its own origin).
+  const devApiTarget = String(
+    process.env.VITE_DEV_API_TARGET ?? fileEnv.VITE_DEV_API_TARGET ?? '',
+  ).trim()
+
   return {
     plugins: [vue()],
     resolve: {
@@ -30,6 +37,15 @@ export default defineConfig(({ command, mode }) => {
     server: {
       port: 5173,
       host: true,
+      proxy: devApiTarget
+        ? {
+            '/api': {
+              target: devApiTarget,
+              changeOrigin: true,
+              secure: false,
+            },
+          }
+        : undefined,
     },
   }
 })

@@ -32,8 +32,40 @@ const emit = defineEmits<{ select: [userId: string | null] }>()
 
 type MapMode = 'schematic' | 'loading' | 'amap'
 
+/** Built-in AMap JS API 2.0 styles (mapStyle: amap://styles/<id>). */
+const AMAP_STYLES = [
+  { id: 'whitesmoke', label: '远山黛' },
+  { id: 'normal', label: '默认' },
+  { id: 'light', label: '月光银' },
+  { id: 'fresh', label: '草色青' },
+  { id: 'grey', label: '雅士灰' },
+  { id: 'blue', label: '靛青蓝' },
+  { id: 'dark', label: '幻影黑' },
+  { id: 'darkblue', label: '极夜蓝' },
+  { id: 'wine', label: '酱籽' },
+  { id: 'graffiti', label: '涂鸦' },
+  { id: 'macaron', label: '马卡龙' },
+] as const
+
+const MAP_STYLE_KEY = 'wa_map_style'
+const DEFAULT_MAP_STYLE = 'whitesmoke'
+
+function readStoredMapStyle(): string {
+  try {
+    const stored = window.localStorage.getItem(MAP_STYLE_KEY)
+    if (stored && AMAP_STYLES.some((item) => item.id === stored)) return stored
+  } catch {
+    /* storage can be unavailable in private mode */
+  }
+  return DEFAULT_MAP_STYLE
+}
+
 const mode = ref<MapMode>(isAmapConfigured ? 'loading' : 'schematic')
 const amapError = ref('')
+const mapStyle = ref(readStoredMapStyle())
+const currentStyleLabel = computed(
+  () => AMAP_STYLES.find((item) => item.id === mapStyle.value)?.label ?? '默认',
+)
 const viewport = ref<HTMLElement | null>(null)
 const amapEl = ref<HTMLElement | null>(null)
 const size = ref({ w: 0, h: 0 })
@@ -362,6 +394,20 @@ function syncAmapMarkers(): void {
   }
 }
 
+function applyMapStyle(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value
+  if (!AMAP_STYLES.some((item) => item.id === value)) return
+  mapStyle.value = value
+  try {
+    window.localStorage.setItem(MAP_STYLE_KEY, value)
+  } catch {
+    /* ignore quota/private-mode errors */
+  }
+  if (mode.value === 'amap' && map) {
+    map.setMapStyle?.(`amap://styles/${value}`)
+  }
+}
+
 async function initAmap(): Promise<void> {
   if (!isAmapConfigured) return
   try {
@@ -372,7 +418,7 @@ async function initAmap(): Promise<void> {
       zoom: 13.2,
       center: [120.1551, 30.2741],
       viewMode: '2D',
-      mapStyle: 'amap://styles/whitesmoke',
+      mapStyle: `amap://styles/${mapStyle.value}`,
       showLabel: true,
       resizeEnable: true,
     })
@@ -528,6 +574,26 @@ onBeforeUnmount(() => {
       <Icon v-else name="map" :size="14" />
       <span>{{ badgeLabel }}</span>
     </div>
+
+    <label
+      v-if="mode === 'amap' && !drawerOpen"
+      class="map-style"
+      title="切换高德地图配色"
+    >
+      <Icon name="palette" :size="13" />
+      <span class="map-style__label">{{ currentStyleLabel }}</span>
+      <Icon name="chevron-down" :size="12" class="map-style__chevron" />
+      <select
+        class="map-style__select"
+        :value="mapStyle"
+        aria-label="高德地图配色"
+        @change="applyMapStyle"
+      >
+        <option v-for="item in AMAP_STYLES" :key="item.id" :value="item.id">
+          {{ item.label }}
+        </option>
+      </select>
+    </label>
 
     <div class="map-legend" aria-hidden="true">
       <span class="map-legend__item"><i class="status-dot status-dot--online" />在线</span>
@@ -834,10 +900,53 @@ onBeforeUnmount(() => {
   border-width: 1.5px;
 }
 
+.map-style {
+  position: absolute;
+  top: 56px;
+  right: 16px;
+  z-index: 31;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--ring);
+  color: var(--slate);
+  font-size: 10.5px;
+  font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background-color 0.16s;
+}
+
+.map-style:hover {
+  background: var(--white);
+}
+
+.map-style__label {
+  color: var(--ink);
+}
+
+.map-style__chevron {
+  color: var(--ink-muted);
+}
+
+.map-style__select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 16px;
+}
+
 .map-legend {
   position: absolute;
   left: 16px;
-  bottom: 16px;
+  top: 16px;
   z-index: 30;
   display: flex;
   align-items: center;
@@ -959,6 +1068,19 @@ onBeforeUnmount(() => {
   color: var(--ink);
 }
 
+@media (max-width: 1024px) {
+  .map-style {
+    top: 56px;
+    right: 12px;
+  }
+
+  /* The member panel becomes an overlay with a toggle at the top-left. */
+  .map-legend {
+    top: auto;
+    bottom: 16px;
+  }
+}
+
 @media (max-width: 900px) {
   .map-controls {
     right: 12px;
@@ -973,6 +1095,7 @@ onBeforeUnmount(() => {
 
   .map-legend {
     left: 12px;
+    top: auto;
     bottom: 12px;
     gap: 9px;
     padding: 0 10px;
@@ -990,6 +1113,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 480px) {
   .map-legend {
+    top: auto;
     bottom: 64px;
     font-size: 10px;
     gap: 8px;

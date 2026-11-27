@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { MemberView } from '@/api/types'
-import { describeLocation } from '@/lib/geo'
+import { usePlaceLabel } from '@/composables/usePlaceLabel'
 import { formatBattery, relativeTime } from '@/lib/format'
 import Avatar from './Avatar.vue'
 
@@ -27,10 +27,7 @@ const isSelf = computed(() => props.member.userId === props.currentUserId)
 const offline = computed(() => !props.member.online)
 const paused = computed(() => props.member.sharingPaused)
 const location = computed(() => props.member.lastLocation)
-const address = computed(() => {
-  if (!location.value) return '暂无位置数据'
-  return describeLocation(location.value.lat, location.value.lng)
-})
+const { label: address } = usePlaceLabel(location)
 const timeText = computed(() => {
   const iso = location.value?.recordedAt ?? props.member.lastSeenAt
   if (!iso) return '暂无更新'
@@ -80,8 +77,13 @@ const batteryWidth = computed(() => {
         <span class="member-card__name">
           {{ member.nickname }}
           <span v-if="isSelf" class="member-card__self">我</span>
+          <span v-else-if="paused" class="member-card__paused">已暂停</span>
         </span>
-        <span v-if="battery !== null" class="member-card__battery" :title="`电量 ${formatBattery(battery)}`">
+        <span
+          v-if="battery !== null"
+          class="member-card__battery"
+          :title="`电量 ${formatBattery(battery)}`"
+        >
           <span class="member-card__battery-track">
             <span
               class="member-card__battery-fill"
@@ -95,12 +97,7 @@ const batteryWidth = computed(() => {
       <span class="member-card__address">{{ address }}</span>
 
       <span class="member-card__meta">
-        <span class="member-card__state">
-          <span class="status-dot" :class="statusClass" />
-          {{ stateText }}
-        </span>
-        <span class="member-card__sep">·</span>
-        <span>{{ timeText }}</span>
+        <span class="member-card__time">{{ timeText }}</span>
       </span>
     </span>
   </button>
@@ -110,17 +107,18 @@ const batteryWidth = computed(() => {
 .member-card {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  padding: 12px;
-  border-radius: var(--r-card);
-  border: 1px solid transparent;
-  background: transparent;
+  min-height: 82px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--ring);
+  background: var(--white);
   text-align: left;
   transition:
     background-color 0.16s var(--ease-out),
-    box-shadow 0.16s var(--ease-out),
-    border-color 0.16s var(--ease-out);
+    border-color 0.16s var(--ease-out),
+    box-shadow 0.16s var(--ease-out);
 }
 
 .member-card:hover {
@@ -128,9 +126,13 @@ const batteryWidth = computed(() => {
 }
 
 .member-card.is-selected {
-  background: #f7f9ff;
-  border-color: rgba(91, 118, 254, 0.5);
-  box-shadow: 0 0 0 1px rgba(91, 118, 254, 0.18);
+  background: var(--blue-soft);
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px rgba(91, 118, 254, 0.14);
+}
+
+.member-card.is-selected:hover {
+  background: var(--blue-soft);
 }
 
 .member-card__avatar {
@@ -140,17 +142,18 @@ const batteryWidth = computed(() => {
 
 .member-card__status {
   position: absolute;
-  right: 0;
+  right: -1px;
   bottom: 1px;
-  width: 11px;
-  height: 11px;
+  width: 9px;
+  height: 9px;
   border: 2px solid #fff;
+  box-shadow: none;
 }
 
 .member-card__body {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
   flex: 1;
 }
@@ -158,18 +161,17 @@ const batteryWidth = computed(() => {
 .member-card__top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
 .member-card__name {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 15px;
+  gap: 6px;
+  font-size: 13.5px;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.35;
   letter-spacing: -0.01em;
   color: var(--ink);
   white-space: nowrap;
@@ -183,27 +185,36 @@ const batteryWidth = computed(() => {
 
 .member-card__self {
   display: inline-flex;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--blue-soft);
-  color: var(--blue-pressed);
-  font-size: 9px;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--blue);
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
+}
+
+.member-card__paused {
+  color: var(--orange-ink);
+  font-size: 10.5px;
+  font-weight: 600;
 }
 
 .member-card__battery {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  margin-left: auto;
   flex: 0 0 auto;
 }
 
 .member-card__battery-track {
-  width: 26px;
-  height: 3px;
-  border-radius: 999px;
-  background: #eceef2;
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--input-line);
   overflow: hidden;
 }
 
@@ -221,8 +232,8 @@ const batteryWidth = computed(() => {
 }
 
 .member-card__address {
-  font-size: 12.5px;
-  line-height: 1.4;
+  font-size: 10.5px;
+  line-height: 1.45;
   color: var(--slate);
   white-space: nowrap;
   overflow: hidden;
@@ -232,27 +243,23 @@ const batteryWidth = computed(() => {
 .member-card__meta {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 11px;
+  gap: 6px;
+  margin-top: 1px;
+  font-size: 10.5px;
   line-height: 1.4;
   color: var(--ink-muted);
 }
 
-.member-card__state {
-  display: inline-flex;
+.member-card__top {
   align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.member-card__state .status-dot {
-  width: 5px;
-  height: 5px;
-  box-shadow: none;
 }
 
 .member-card__sep {
-  opacity: 0.5;
+  opacity: 0.6;
+}
+
+.member-card__time {
+  white-space: nowrap;
 }
 
 .member-card.is-paused .member-card__address {
