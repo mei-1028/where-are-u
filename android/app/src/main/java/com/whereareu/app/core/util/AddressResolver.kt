@@ -13,8 +13,13 @@ interface AddressResolver {
 
 /**
  * Uses the device geocoder (no extra SDK/key). When geocoding is unavailable
- * (some AOSP builds, offline, or blocked in China) it falls back to coordinates,
- * so the UI always has something to show.
+ * (some AOSP builds, offline, or blocked) it falls back to a short coordinate
+ * string, so the UI always has something to show.
+ *
+ * Coordinates arriving here are GCJ-02 (the datum AMap reports), while the
+ * platform geocoder expects WGS-84. Querying with the raw value lands a few
+ * hundred metres away in China — often on a neighbouring building — so the
+ * datum is converted first.
  */
 class AndroidAddressResolver(context: Context) : AddressResolver {
 
@@ -33,25 +38,45 @@ class AndroidAddressResolver(context: Context) : AddressResolver {
         address
     }
 
-    private fun geocode(lat: Double, lng: Double): String {
-        if (!Geocoder.isPresent()) return formatCoordinates(lat, lng)
+    private fun geocode(gcjLat: Double, gcjLng: Double): String {
+        if (!Geocoder.isPresent()) return formatCoordinates(gcjLat, gcjLng)
+        val (lat, lng) = GeoUtils.gcj02ToWgs84(gcjLat, gcjLng)
         return try {
             @Suppress("DEPRECATION")
             val results = Geocoder(appContext, Locale.getDefault()).getFromLocation(lat, lng, 1)
             val first = results?.firstOrNull()
             val line = first?.getAddressLine(0)?.trim()?.takeIf { it.isNotBlank() }
-                ?: listOfNotNull(
-                    first?.adminArea,
-                    first?.locality,
-                    first?.subLocality,
-                    first?.thoroughfare,
-                    first?.subThoroughfare,
-                ).joinToString("").takeIf { it.isNotBlank() }
-            line ?: formatCoordinates(lat, lng)
+                ?: assembleAddress(first)
+            line ?: formatCoordinates(gcjLat, gcjLng)
         } catch (t: Throwable) {
             Log.d(TAG, "Geocoder failed: ${t.message}")
-            formatCoordinates(lat, lng)
+            formatCoordinates(gcjLat, gcjLng)
         }
+    }
+
+    /**
+     * Rebuilds a one-line address when the platform gives no address line.
+     *
+     * Chinese admin names nest ("苏州市" contains "常熟市" as a county-level
+     * city), so naive concatenation produced "常熟市常熟市…". A part that is
+     * already a suffix of the accumulated text is skipped.
+     */
+    private fun assembleAddress(address: android.location.Address?): String? {
+        if (address == null) return null
+        val parts = listOfNotNull(
+            address.adminArea,
+            address.locality,
+            address.subLocality,
+            address.thoroughfare,
+            address.subThoroughfare,
+        ).map { it.trim() }.filter { it.isNotEmpty() }
+
+        val builder = StringBuilder()
+        for (part in parts) {
+            if (builder.endsWith(part)) continue
+            builder.append(part)
+        }
+        return builder.toString().takeIf { it.isNotBlank() }
     }
 
     private fun cacheKey(lat: Double, lng: Double): String =

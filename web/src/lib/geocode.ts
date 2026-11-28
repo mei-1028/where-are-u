@@ -53,7 +53,7 @@ function getGeocoder(AMap: any): Promise<any> {
     try {
       AMap.plugin('AMap.Geocoder', () => {
         try {
-          geocoder = new AMap.Geocoder({ radius: 300, extensions: 'base' })
+          geocoder = new AMap.Geocoder({ radius: 300, extensions: 'all' })
           resolve(geocoder)
         } catch (err) {
           geocoderPromise = null
@@ -69,17 +69,23 @@ function getGeocoder(AMap: any): Promise<any> {
 }
 
 /**
- * Builds a compact, readable address ("常熟市碧溪街道长春一路") from the
- * structured components. The full formattedAddress often drags a long POI name
- * along and does not fit a member card, so it is only used as a fallback.
+ * Builds a compact, readable address ("常熟市琴川街道虞枫家园") from the
+ * structured components.
+ *
+ * A residential area / building name is the part people actually recognise, so
+ * the AOI name wins over the street number when AMap supplies one. Without it
+ * the card would read "达海路6号" for a point that is plainly inside 虞枫家园.
+ * The full formattedAddress is only a last resort: it tends to carry a long POI
+ * name that does not fit a member card.
  */
 function composeAddress(regeocode: any): string {
   const component = regeocode?.addressComponent ?? {}
+  const areaName = String(regeocode?.aois?.[0]?.name ?? '').trim()
   const parts = [
     component.district || component.city,
     component.township,
-    component.street,
-    component.streetNumber,
+    areaName || component.street,
+    areaName ? '' : component.streetNumber,
   ]
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
     .filter(Boolean)

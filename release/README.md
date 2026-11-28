@@ -1,14 +1,14 @@
-# 你在哪 · v1.0.2（M1）
+# 你在哪 · v1.0.3（M1）
 
 家庭位置共享 Android 应用 + 自建服务端 + Web 家庭端。
 
 ## 安装
 
 - 适用：Android 8.0+（minSdk 26）；已在 Redmi K100 Pro / Android 17 真机验证。
-- APK：`where-are-u-1.0.2.apk`（v1.0.0 首个发布版；v1.0.1 修复登出文案与成员端邀请入口；v1.0.2 默认服务器改为 HTTPS）
+- APK：`where-are-u-1.0.3.apk`（v1.0.0 首个发布版；v1.0.1 登出文案与成员邀请入口；v1.0.2 默认 HTTPS；v1.0.3 修复地址偏移）
 - 安装：允许「安装未知来源应用」后直接安装，或：
   ```bash
-  adb install -r where-are-u-1.0.2.apk
+  adb install -r where-are-u-1.0.3.apk
   ```
 - 首次打开：注册账号 → 创建家庭（或输入家人的 6 位邀请码加入）→ 按引导开启定位/后台定位/通知 → 开始共享。
 - 默认服务器已在构建时写入 APK；也可在登录页右上角齿轮里修改。
@@ -19,12 +19,12 @@
 - 从 v1.0.1 升级上来的设备，本地保存的 `http://182.254.155.179:18080` 会在启动时**自动迁移**为 HTTPS 默认地址；用户自己填过的其他服务器不会被改动。
 - 旧的 `http://182.254.155.179:18080` 仍可用，仅用于过渡；新装设备一律走 HTTPS。
 
-## Redmi 一键验收（v1.0.2）
+## 真机一键验收（v1.0.3）
 
 连接手机、开启 USB 调试后，在仓库根目录运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File release\verify-redmi.ps1 -Apk release\where-are-u-1.0.2.apk
+powershell -ExecutionPolicy Bypass -File release\verify-redmi.ps1 -Apk release\where-are-u-1.0.3.apk
 ```
 
 可选参数：`-Serial <设备序列号>`、`-Apk <APK路径>`、`-Username <账号> -Password <密码>`（传账号密码时会额外触发一次立即定位并等待 completed）。
@@ -45,7 +45,7 @@ powershell -ExecutionPolicy Bypass -File release\verify-redmi.ps1 -Apk release\w
 
 ## 签名说明（重要）
 
-v1.0.0 / v1.0.1 / v1.0.2 使用**调试证书**签名，目的是匹配高德 Android Key 当前登记的调试 SHA1。它适合家庭侧载，不适合应用商店或正式分发。
+v1.0.0 / v1.0.1 / v1.0.2 / v1.0.3 使用**调试证书**签名，目的是匹配高德 Android Key 当前登记的调试 SHA1。它适合家庭侧载，不适合应用商店或正式分发。
 
 升级为正式分发时：
 
@@ -66,16 +66,17 @@ v1.0.0 / v1.0.1 / v1.0.2 使用**调试证书**签名，目的是匹配高德 An
 
 ## 验证记录
 
-- Android 单元测试：59/59 通过（含位置上报/离线队列/设备生命周期/SharingController/服务地址迁移）
+- Android 单元测试：63/63 通过（含位置上报/离线队列/设备生命周期/SharingController/服务地址迁移）
 - 服务端：36 个集成测试通过
-- Web：20 个单元测试通过；生产构建通过；公网部署后登录、成员/邀请到期/地图验证通过
+- Web：21 个单元测试通过；生产构建通过；公网部署后登录、成员/邀请到期/地图验证通过
 - 真机：登录、引导、地图、位置上报、暂停/恢复共享、家庭/设置/地图切换
 - 立即定位：公网 + 真机 + 模拟器均验证通过。高德 one-shot 失败时自动降级系统 fused 定位，30 秒内回传，服务端命令 `completed`
 - Orca 模拟器（Android 15 API 35）：登录、引导、地图、位置上报
 - v1.0.1 模拟器：登出 → 成员登录 → 退出家庭 → 邀请码重新加入；服务端确认旧设备注销、新设备重新注册；设置登出文案与成员端邀请入口已修正
 - `verify-redmi.ps1` 在模拟器通过：家庭/设置/地图三个 Tab 连续点击，进程不重启、无崩溃日志、退出码 0
 - v1.0.2 模拟器：从 v1.0.1 覆盖安装后，本地 `http://...:18080` 自动迁移为 `https://182.254.155.179`；全部连接走 443、无 18080 明文；WSS 在线状态正常；HTTPS 下立即定位 `completed`
-- Web：真实服务端与公网 HTTPS 部署下登录、家庭地图、成员详情、立即定位；高德底图加载
+- v1.0.3 真机（华为 Mate 20 Pro / Android 10）：地址由「江苏省苏州市常熟市常熟市庆华塑料制品厂」修正为「江苏省苏州市常熟市虞枫家园」；根因是 GCJ-02 坐标被直接传给按 WGS-84 解析的系统 Geocoder，偏移约 467m
+- Web：真实服务端与公网 HTTPS 部署下登录、家庭地图、成员详情、立即定位；高德底图加载；地址优先显示小区/AOI 名
 
 ## 文件校验
 
@@ -83,12 +84,13 @@ v1.0.0 / v1.0.1 / v1.0.2 使用**调试证书**签名，目的是匹配高德 An
 
 - `where-are-u-1.0.0.apk` / `where-are-u-1.0.0.apk.sha256`（第一版）
 - `where-are-u-1.0.1.apk` / `where-are-u-1.0.1.apk.sha256`
-- `where-are-u-1.0.2.apk` / `where-are-u-1.0.2.apk.sha256`（当前推荐，HTTPS）
-- `SHA256SUMS.txt`（三个版本）
+- `where-are-u-1.0.3.apk` / `where-are-u-1.0.3.apk.sha256`（当前推荐，HTTPS）
+- `SHA256SUMS.txt`（四个版本）
 - `verify-redmi.ps1`（Redmi 一键验收脚本）
 
 SHA-256：
 
+- v1.0.3：`7027133FD15F7555BC9C7902EF36E6EDC05FB397C79A4D003088422E0A485C5A`
 - v1.0.2：`170D950D67C19D416513A06084A121256CFD65632C7D94EFE14883D124E755B4`
 - v1.0.1：`2A71029F92673B5F877FF374E11719B3FB2C6F87DEBA6CD4840123FDF9D5FA52`
 - v1.0.0：`AC565058E59044B28BD2A0E7BCD84FFE47FDC6AA3FCB38BFA02EB2E0A4474659`
