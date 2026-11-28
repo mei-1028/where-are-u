@@ -31,6 +31,13 @@ class GeoUtilsTest {
     }
 
     @Test
+    fun `wgs84 to gcj02 lands on the known gcj value`() {
+        val (lat, lng) = GeoUtils.wgs84ToGcj02(31.681253, 120.789911)
+        assertEquals(31.679287, lat, 0.00005)
+        assertEquals(120.794275, lng, 0.00005)
+    }
+
+    @Test
     fun `coordinates outside china are returned unchanged`() {
         val (lat, lng) = GeoUtils.gcj02ToWgs84(48.8566, 2.3522)
         assertEquals(48.8566, lat, 1e-9)

@@ -33,6 +33,10 @@ import type {
   LoginInput,
   MeResponse,
   MemberView,
+  PlaceInfo,
+  PlaceInput,
+  PlacePatch,
+  PlaceType,
   RegisterInput,
   Role,
 } from './types'
@@ -109,6 +113,19 @@ interface MockFollow {
   rules: MockRule[]
 }
 
+interface MockPlace {
+  id: string
+  familyId: string
+  name: string
+  nameKey: string
+  type: PlaceType
+  lat: number
+  lng: number
+  radiusMeters: number
+  createdBy: string
+  createdAt: string
+}
+
 type MockAlert = AlertInfo & { familyId: string; userId: string }
 
 interface MockDb {
@@ -119,11 +136,12 @@ interface MockDb {
   commands: MockCommand[]
   follows: MockFollow[]
   alerts: MockAlert[]
+  places: MockPlace[]
   tokens: Record<string, string>
 }
 
 const DB_KEY = 'where-are-u:mock:v1'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const DEMO_PASSWORD = 'demo1234'
 
 function storage(): Storage | null {
@@ -277,6 +295,33 @@ function seedDb(): MockDb {
     },
   ]
 
+  const places: MockPlace[] = [
+    {
+      id: 'p_1',
+      familyId: family.id,
+      name: '家',
+      nameKey: '家',
+      type: 'home',
+      lat: 30.2789,
+      lng: 120.1295,
+      radiusMeters: 200,
+      createdBy: 'u_1',
+      createdAt: isoAgo(30 * 86_400_000),
+    },
+    {
+      id: 'p_2',
+      familyId: family.id,
+      name: '公司',
+      nameKey: '公司',
+      type: 'company',
+      lat: 30.273,
+      lng: 120.1657,
+      radiusMeters: 300,
+      createdBy: 'u_1',
+      createdAt: isoAgo(20 * 86_400_000),
+    },
+  ]
+
   const follows: MockFollow[] = [
     {
       id: 'f_1',
@@ -305,6 +350,17 @@ function seedDb(): MockDb {
           enabled: true,
           config: { hours: 12 },
           lastFiredAt: isoAgo(2 * 3_600_000),
+        },
+        {
+          id: 'r_4',
+          type: 'GEOFENCE',
+          enabled: true,
+          config: {
+            placeId: 'p_1',
+            event: 'BOTH',
+            window: { days: [1, 2, 3, 4, 5], start: '07:00', end: '09:00' },
+          },
+          lastFiredAt: null,
         },
       ],
     },
@@ -354,6 +410,7 @@ function seedDb(): MockDb {
     commands: [],
     follows,
     alerts,
+    places,
     tokens: {},
   }
 }
@@ -639,26 +696,65 @@ const RULE_DEFAULTS: Record<AlertRuleType, Record<string, unknown>> = {
   MOVEMENT: { thresholdMeters: 500, cooldownMinutes: 30 },
   STALE: { hours: 12 },
   LOW_BATTERY: { percent: 20 },
+  GEOFENCE: { event: 'BOTH', window: null },
 }
 
-function toRuleInfo(rule: MockRule): AlertRuleInfo {
+function toRuleInfo(rule: MockRule, places: MockPlace[]): AlertRuleInfo {
+  const placeId =
+    rule.type === 'GEOFENCE'
+      ? (rule.config as { placeId?: string }).placeId
+      : undefined
+  const place = placeId
+    ? places.find((item) => item.id === placeId) ?? null
+    : null
   return {
     id: rule.id,
     type: rule.type,
     enabled: rule.enabled,
     config: rule.config as unknown as AlertRuleConfig,
+    place: place ? { id: place.id, name: place.name } : null,
     lastFiredAt: rule.lastFiredAt,
   }
 }
 
-function toFollowInfo(follow: MockFollow): FollowInfo {
+function toFollowInfo(follow: MockFollow, places: MockPlace[]): FollowInfo {
   const target = findUser(follow.targetId)
   return {
     id: follow.id,
     target: { userId: target.id, nickname: target.nickname },
     createdAt: follow.createdAt,
-    rules: follow.rules.map(toRuleInfo),
+    rules: follow.rules.map((rule) => toRuleInfo(rule, places)),
   }
+}
+
+function toPlaceInfo(place: MockPlace, usedByRules: number): PlaceInfo {
+  return {
+    id: place.id,
+    name: place.name,
+    type: place.type,
+    lat: place.lat,
+    lng: place.lng,
+    radiusMeters: place.radiusMeters,
+    createdBy: place.createdBy,
+    createdAt: place.createdAt,
+    usedByRules,
+  }
+}
+
+function normalizePlaceNameKey(name: string): string {
+  return name.trim().normalize('NFKC').toLowerCase()
+}
+
+function placeRuleCounts(): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const follow of getDb().follows) {
+    for (const rule of follow.rules) {
+      if (rule.type !== 'GEOFENCE') continue
+      const placeId = (rule.config as { placeId?: string }).placeId
+      if (placeId) counts.set(placeId, (counts.get(placeId) ?? 0) + 1)
+    }
+  }
+  return counts
 }
 
 function toAlertInfo(alert: MockAlert): AlertInfo {
@@ -1090,7 +1186,7 @@ export const mockApi: ApiSurface = {
       return {
         follows: getDb()
           .follows.filter((follow) => follow.followerId === user.id)
-          .map(toFollowInfo),
+          .map((follow) => toFollowInfo(follow, getDb().places)),
       }
     },
 
@@ -1109,7 +1205,7 @@ export const mockApi: ApiSurface = {
         (follow) =>
           follow.followerId === user.id && follow.targetId === input.targetUserId,
       )
-      if (existing) return { follow: toFollowInfo(existing) }
+      if (existing) return { follow: toFollowInfo(existing, database.places) }
 
       const follow: MockFollow = {
         id: newId('f'),
@@ -1127,7 +1223,7 @@ export const mockApi: ApiSurface = {
       }
       database.follows.push(follow)
       persist()
-      return { follow: toFollowInfo(follow) }
+      return { follow: toFollowInfo(follow, database.places) }
     },
 
     async remove(id: string): Promise<void> {
@@ -1163,22 +1259,41 @@ export const mockApi: ApiSurface = {
     ): Promise<{ rule: AlertRuleInfo }> {
       await sleep(140)
       const follow = requireOwnedFollow(followId)
-      if (follow.rules.some((rule) => rule.type === type)) {
+      if (
+        type !== 'GEOFENCE' &&
+        follow.rules.some((rule) => rule.type === type)
+      ) {
         throw new ApiError(409, 'CONFLICT', '该类型的提醒已存在')
       }
-      if (follow.rules.length >= 5) {
-        throw new ApiError(400, 'VALIDATION', '最多 5 条提醒规则')
+      if (follow.rules.length >= 10) {
+        throw new ApiError(400, 'VALIDATION', '最多 10 条提醒规则')
+      }
+      const mergedConfig = { ...RULE_DEFAULTS[type], ...(config ?? {}) }
+      if (type === 'GEOFENCE') {
+        const placeId = mergedConfig.placeId
+        if (
+          typeof placeId !== 'string' ||
+          !getDb().places.some((place) => place.id === placeId)
+        ) {
+          throw new ApiError(404, 'NOT_FOUND', '地点不存在')
+        }
+        const duplicate = follow.rules.some(
+          (rule) =>
+            rule.type === 'GEOFENCE' &&
+            (rule.config as { placeId?: string }).placeId === placeId,
+        )
+        if (duplicate) throw new ApiError(409, 'CONFLICT', '这个地点的提醒已存在')
       }
       const rule: MockRule = {
         id: newId('r'),
         type,
         enabled: true,
-        config: { ...RULE_DEFAULTS[type], ...(config ?? {}) },
+        config: mergedConfig,
         lastFiredAt: null,
       }
       follow.rules.push(rule)
       persist()
-      return { rule: toRuleInfo(rule) }
+      return { rule: toRuleInfo(rule, getDb().places) }
     },
 
     async updateRule(
@@ -1193,7 +1308,7 @@ export const mockApi: ApiSurface = {
       if (patch.enabled !== undefined) rule.enabled = patch.enabled
       if (patch.config) rule.config = { ...rule.config, ...patch.config }
       persist()
-      return { rule: toRuleInfo(rule) }
+      return { rule: toRuleInfo(rule, getDb().places) }
     },
 
     async deleteRule(followId: string, ruleId: string): Promise<void> {
@@ -1253,6 +1368,115 @@ export const mockApi: ApiSurface = {
       }
       persist()
       return { updated }
+    },
+  },
+
+  places: {
+    async list(): Promise<{ places: PlaceInfo[] }> {
+      await sleep(100)
+      const { family } = requireFamily()
+      const counts = placeRuleCounts()
+      return {
+        places: getDb()
+          .places.filter((place) => place.familyId === family.id)
+          .map((place) => toPlaceInfo(place, counts.get(place.id) ?? 0)),
+      }
+    },
+
+    async create(input: PlaceInput): Promise<{ place: PlaceInfo }> {
+      await sleep(160)
+      const { user, family } = requireFamily()
+      const database = getDb()
+      const familyPlaces = database.places.filter(
+        (place) => place.familyId === family.id,
+      )
+      if (familyPlaces.length >= 20) {
+        throw new ApiError(400, 'VALIDATION', '每个家庭最多 20 个地点')
+      }
+      const name = input.name.trim()
+      const nameKey = normalizePlaceNameKey(name)
+      if (familyPlaces.some((place) => place.nameKey === nameKey)) {
+        throw new ApiError(409, 'CONFLICT', '这个地点名已经存在')
+      }
+      const place: MockPlace = {
+        id: newId('p'),
+        familyId: family.id,
+        name,
+        nameKey,
+        type: input.type ?? 'other',
+        lat: input.lat,
+        lng: input.lng,
+        radiusMeters: input.radiusMeters ?? 200,
+        createdBy: user.id,
+        createdAt: new Date().toISOString(),
+      }
+      database.places.push(place)
+      persist()
+      return { place: toPlaceInfo(place, 0) }
+    },
+
+    async update(id: string, patch: PlacePatch): Promise<{ place: PlaceInfo }> {
+      await sleep(140)
+      const { user, family, membership } = requireFamily()
+      const database = getDb()
+      const place = database.places.find(
+        (item) => item.id === id && item.familyId === family.id,
+      )
+      if (!place) throw new ApiError(404, 'NOT_FOUND', '地点不存在')
+      if (place.createdBy !== user.id && membership.role !== 'admin') {
+        throw new ApiError(403, 'FORBIDDEN', '只有创建者或管理员可以修改地点')
+      }
+      if (patch.name !== undefined) {
+        const name = patch.name.trim()
+        const nameKey = normalizePlaceNameKey(name)
+        if (
+          database.places.some(
+            (item) =>
+              item.familyId === family.id &&
+              item.id !== place.id &&
+              item.nameKey === nameKey,
+          )
+        ) {
+          throw new ApiError(409, 'CONFLICT', '这个地点名已经存在')
+        }
+        place.name = name
+        place.nameKey = nameKey
+      }
+      if (patch.type !== undefined) place.type = patch.type
+      if (patch.lat !== undefined) place.lat = patch.lat
+      if (patch.lng !== undefined) place.lng = patch.lng
+      if (patch.radiusMeters !== undefined) {
+        place.radiusMeters = patch.radiusMeters
+      }
+      persist()
+      return {
+        place: toPlaceInfo(place, placeRuleCounts().get(place.id) ?? 0),
+      }
+    },
+
+    async remove(id: string): Promise<{ removedRules: number }> {
+      await sleep(140)
+      const { user, family, membership } = requireFamily()
+      const database = getDb()
+      const place = database.places.find(
+        (item) => item.id === id && item.familyId === family.id,
+      )
+      if (!place) throw new ApiError(404, 'NOT_FOUND', '地点不存在')
+      if (place.createdBy !== user.id && membership.role !== 'admin') {
+        throw new ApiError(403, 'FORBIDDEN', '只有创建者或管理员可以删除地点')
+      }
+      let removedRules = 0
+      for (const follow of database.follows) {
+        const before = follow.rules.length
+        follow.rules = follow.rules.filter((rule) => {
+          if (rule.type !== 'GEOFENCE') return true
+          return (rule.config as { placeId?: string }).placeId !== place.id
+        })
+        removedRules += before - follow.rules.length
+      }
+      database.places = database.places.filter((item) => item.id !== place.id)
+      persist()
+      return { removedRules }
     },
   },
 }

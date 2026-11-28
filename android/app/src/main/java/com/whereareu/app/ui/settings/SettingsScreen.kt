@@ -73,7 +73,10 @@ import com.whereareu.app.ui.theme.White
 import com.whereareu.app.ui.viewModelFactoryFor
 
 @Composable
-fun SettingsScreen(onLoggedOut: () -> Unit) {
+fun SettingsScreen(
+    onLoggedOut: () -> Unit,
+    onOpenPlaces: () -> Unit = {},
+) {
     val viewModel: SettingsViewModel = viewModel(
         factory = viewModelFactoryFor {
             SettingsViewModel(
@@ -232,6 +235,22 @@ fun SettingsScreen(onLoggedOut: () -> Unit) {
                 text = "后台运行状态：${if (uiState.sharingEnabled) "已请求前台服务，系统可能因省电策略延迟" else "已停止"}",
                 style = MaterialTheme.typography.labelSmall,
                 color = SlateText,
+            )
+        }
+
+        Spacer(Modifier.height(20.dp))
+        SectionHeader("家庭地点")
+        MiroCard(
+            cornerRadius = 20.dp,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                horizontal = 16.dp,
+                vertical = 4.dp,
+            ),
+        ) {
+            SettingItem(
+                title = "家庭地点",
+                subtitle = "家、学校、公司，用于到达 / 离开提醒",
+                onClick = onOpenPlaces,
             )
         }
 

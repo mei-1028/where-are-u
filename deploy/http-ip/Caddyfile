@@ -19,6 +19,14 @@
 		-Server
 	}
 
+	# Vite assets are content-hashed, so they can be cached forever. index.html
+	# must revalidate: a stale copy points at chunk names deleted by a deploy.
+	@immutable path /assets/*
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+
 	root * /srv/web
 
 	handle /api/* {

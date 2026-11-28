@@ -44,7 +44,9 @@ export const followRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/follows/:id', async (request, reply) => {
     const params = parseInput(followIdParams, request.params);
-    await deleteFollow(app.prisma, request.authUser!.userId, params.id);
+    await app.alertMutex.run(() =>
+      deleteFollow(app.prisma, request.authUser!.userId, params.id),
+    );
     return reply.code(204).send();
   });
 
@@ -64,19 +66,24 @@ export const followRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/follows/:id/rules/:ruleId', async (request) => {
     const params = parseInput(ruleParams, request.params);
     const input = parseInput(updateRuleSchema, request.body);
-    const rule = await updateRule(
-      app.prisma,
-      request.authUser!.userId,
-      params.id,
-      params.ruleId,
-      input,
+    // Serialize with ingest: the evaluation may be writing this rule's state.
+    const rule = await app.alertMutex.run(() =>
+      updateRule(
+        app.prisma,
+        request.authUser!.userId,
+        params.id,
+        params.ruleId,
+        input,
+      ),
     );
     return { rule };
   });
 
   app.delete('/follows/:id/rules/:ruleId', async (request, reply) => {
     const params = parseInput(ruleParams, request.params);
-    await deleteRule(app.prisma, request.authUser!.userId, params.id, params.ruleId);
+    await app.alertMutex.run(() =>
+      deleteRule(app.prisma, request.authUser!.userId, params.id, params.ruleId),
+    );
     return reply.code(204).send();
   });
 };

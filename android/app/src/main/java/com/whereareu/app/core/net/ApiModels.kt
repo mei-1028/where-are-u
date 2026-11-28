@@ -228,12 +228,19 @@ data class FollowTargetDto(
 )
 
 @Serializable
+data class PlaceRefDto(
+    val id: String = "",
+    val name: String = "",
+)
+
+@Serializable
 data class AlertRuleDto(
     val id: String,
     val type: String,
     val enabled: Boolean = true,
-    /** Type-specific JSON: thresholdMeters/cooldownMinutes/hours/percent. */
+    /** Type-specific JSON: thresholdMeters/cooldownMinutes/hours/percent/place. */
     val config: JsonObject? = null,
+    val place: PlaceRefDto? = null,
     val lastFiredAt: String? = null,
 )
 
@@ -316,6 +323,50 @@ data class AlertsResponse(
 
 @Serializable
 data class ReadAllResponse(val updated: Int = 0)
+
+// ---------------------------------------------------------------------------
+// Places
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class PlaceDto(
+    val id: String,
+    val name: String,
+    val type: String = "other",
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    val radiusMeters: Int = 200,
+    val createdBy: String = "",
+    val createdAt: String? = null,
+    val usedByRules: Int = 0,
+)
+
+@Serializable
+data class PlacesResponse(val places: List<PlaceDto> = emptyList())
+
+@Serializable
+data class PlaceResponse(val place: PlaceDto)
+
+@Serializable
+data class CreatePlaceRequest(
+    val name: String,
+    val type: String = "other",
+    val lat: Double,
+    val lng: Double,
+    val radiusMeters: Int = 200,
+)
+
+@Serializable
+data class UpdatePlaceRequest(
+    val name: String? = null,
+    val type: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val radiusMeters: Int? = null,
+)
+
+@Serializable
+data class DeletePlaceResponse(val removedRules: Int = 0)
 
 // ---------------------------------------------------------------------------
 // Errors

@@ -10,6 +10,7 @@ import com.whereareu.app.core.auth.SessionStore
 import com.whereareu.app.core.data.AlertsRepository
 import com.whereareu.app.core.data.FamilyRepository
 import com.whereareu.app.core.data.HistoryRepository
+import com.whereareu.app.core.data.PlacesRepository
 import com.whereareu.app.core.location.LocationFlushScheduler
 import com.whereareu.app.core.location.LocationProviderFactory
 import com.whereareu.app.core.location.LocationReporter
@@ -83,6 +84,8 @@ object AppGraph {
         private set
     lateinit var alertsRepository: AlertsRepository
         private set
+    lateinit var placesRepository: PlacesRepository
+        private set
     lateinit var addressResolver: AddressResolver
         private set
     lateinit var offlineQueue: OfflineLocationQueue
@@ -136,6 +139,7 @@ object AppGraph {
             familyRepository = FamilyRepository(userApi, sessionStore)
             historyRepository = HistoryRepository(userApi)
             alertsRepository = AlertsRepository(userApi)
+            placesRepository = PlacesRepository(userApi)
             addressResolver = AndroidAddressResolver(app)
             val reauthMutex = Mutex()
             locationReporter = LocationReporter(

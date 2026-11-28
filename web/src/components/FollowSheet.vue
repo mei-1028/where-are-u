@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { AlertRuleInfo, AlertRuleType } from '@/api/types'
+import type {
+  AlertRuleInfo,
+  AlertRuleType,
+  GeofenceRuleConfig,
+  GeofenceWindow,
+} from '@/api/types'
 import { useFollowsStore } from '@/stores/follows'
+import { usePlacesStore } from '@/stores/places'
 import { useUiStore } from '@/stores/ui'
 import { messageForError } from '@/lib/errors'
 import Icon from './Icon.vue'
@@ -14,10 +20,12 @@ const props = defineProps<{
 const emit = defineEmits<{ close: [] }>()
 
 const follows = useFollowsStore()
+const places = usePlacesStore()
 const ui = useUiStore()
 
 const busy = ref(false)
 const confirmingUnfollow = ref(false)
+const confirmingGeofence = ref<string | null>(null)
 const draftTypes = ref<AlertRuleType[]>(['MOVEMENT', 'STALE'])
 
 const follow = computed(() => follows.byTarget(props.member.userId))
@@ -52,15 +60,36 @@ const BATTERY_PERCENTS = [10, 20, 30]
 
 const MOVEMENT_DEFAULTS = { thresholdMeters: 500, cooldownMinutes: 30 }
 
+const DAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
+const GEOFENCE_EVENTS: Array<{ key: GeofenceRuleConfig['event']; label: string }> = [
+  { key: 'ENTER', label: '到达' },
+  { key: 'LEAVE', label: '离开' },
+  { key: 'BOTH', label: '到达和离开' },
+]
+
+const geofenceRules = computed(() =>
+  rules.value.filter((rule) => rule.type === 'GEOFENCE'),
+)
+const usedPlaceIds = computed(
+  () => new Set(geofenceRules.value.map((rule) => geofenceConfig(rule).placeId)),
+)
+const canAddGeofence = computed(
+  () =>
+    rules.value.length < 10 &&
+    places.items.some((place) => !usedPlaceIds.value.has(place.id)),
+)
+
 watch(
   () => props.open,
   (open) => {
     if (!open) {
       confirmingUnfollow.value = false
+      confirmingGeofence.value = null
       return
     }
     draftTypes.value = ['MOVEMENT', 'STALE']
     void follows.ensureLoaded()
+    void places.ensureLoaded()
   },
 )
 
@@ -157,6 +186,117 @@ function setBatteryPercent(rule: AlertRuleInfo, value: number): void {
     () => follows.updateRule(follow.value!.id, rule.id, { config: { percent: value } }),
     '更新提醒失败',
   )
+}
+
+/* ---- Geofence rules ----------------------------------------------------- */
+
+function geofenceConfig(rule: AlertRuleInfo): GeofenceRuleConfig {
+  const config = rule.config as Partial<GeofenceRuleConfig>
+  return {
+    placeId: typeof config.placeId === 'string' ? config.placeId : '',
+    event:
+      config.event === 'ENTER' || config.event === 'LEAVE'
+        ? config.event
+        : 'BOTH',
+    window: config.window ?? null,
+  }
+}
+
+function placeNameOf(rule: AlertRuleInfo): string {
+  return (
+    rule.place?.name ??
+    places.byId(geofenceConfig(rule).placeId)?.name ??
+    '地点已删除'
+  )
+}
+
+function windowLabel(window: GeofenceWindow): string {
+  const sorted = [...window.days].sort((a, b) => a - b)
+  let days: string
+  if (sorted.length === 0 || sorted.length === 7) days = '每天'
+  else if (sorted.join(',') === '1,2,3,4,5') days = '工作日'
+  else if (sorted.join(',') === '6,7') days = '周末'
+  else days = sorted.map((day) => `周${DAY_LABELS[day - 1]}`).join('、')
+  const overnight = window.start > window.end ? '（跨天）' : ''
+  return `${days} ${window.start}–${window.end}${overnight}`
+}
+
+function addGeofence(): void {
+  const current = follow.value
+  if (!current) return
+  const place = places.items.find((item) => !usedPlaceIds.value.has(item.id))
+  if (!place) {
+    ui.toast('先在地图上长按添加一个地点', 'error')
+    return
+  }
+  void run(
+    () =>
+      follows.addRule(current.id, 'GEOFENCE', {
+        placeId: place.id,
+        event: 'BOTH',
+        window: null,
+      }),
+    '添加围栏提醒失败',
+  )
+}
+
+function updateGeofence(
+  rule: AlertRuleInfo,
+  patch: Partial<GeofenceRuleConfig>,
+): void {
+  const current = follow.value
+  if (!current) return
+  const config: GeofenceRuleConfig = { ...geofenceConfig(rule), ...patch }
+  void run(
+    () => follows.updateRule(current.id, rule.id, { config: { ...config } }),
+    '更新围栏提醒失败',
+  )
+}
+
+function setGeofenceEvent(
+  rule: AlertRuleInfo,
+  event: GeofenceRuleConfig['event'],
+): void {
+  updateGeofence(rule, { event })
+}
+
+function enableWindow(rule: AlertRuleInfo): void {
+  if (geofenceConfig(rule).window) return
+  updateGeofence(rule, {
+    window: { days: [1, 2, 3, 4, 5], start: '07:00', end: '09:00' },
+  })
+}
+
+function setGeofenceAllDay(rule: AlertRuleInfo): void {
+  updateGeofence(rule, { window: null })
+}
+
+function toggleDay(rule: AlertRuleInfo, day: number): void {
+  const window = geofenceConfig(rule).window
+  if (!window) return
+  const days = window.days.includes(day)
+    ? window.days.filter((item) => item !== day)
+    : [...window.days, day].sort((a, b) => a - b)
+  updateGeofence(rule, { window: { ...window, days } })
+}
+
+function setWindowTime(
+  rule: AlertRuleInfo,
+  key: 'start' | 'end',
+  value: string,
+): void {
+  const window = geofenceConfig(rule).window
+  if (!window || !value) return
+  updateGeofence(rule, { window: { ...window, [key]: value } })
+}
+
+function removeGeofence(rule: AlertRuleInfo): void {
+  const current = follow.value
+  if (!current) return
+  void run(async () => {
+    await follows.removeRule(current.id, rule.id)
+    confirmingGeofence.value = null
+  }, '删除围栏提醒失败')
 }
 
 function valueOf(rule: AlertRuleInfo, key: string, fallback = 0): number {
@@ -308,6 +448,171 @@ function unfollow(): void {
           </div>
         </div>
       </div>
+
+      <section class="geofence-block">
+        <div class="geofence-head">
+          <span class="rule-card__copy">
+            <span class="rule-card__title">到达 / 离开某地</span>
+            <span class="rule-card__desc">家人进出家庭地点时提醒，可只在指定时段生效</span>
+          </span>
+          <button
+            type="button"
+            class="btn btn--ghost btn--sm"
+            :disabled="busy || !canAddGeofence"
+            @click="addGeofence"
+          >
+            <Icon name="plus" :size="14" />
+            添加
+          </button>
+        </div>
+
+        <p v-if="places.items.length === 0" class="geofence-empty">
+          还没有家庭地点。先在地图上长按（桌面端右键）添加一个地点。
+        </p>
+        <p v-else-if="geofenceRules.length === 0 && !canAddGeofence" class="geofence-empty">
+          每个地点只能设置一条围栏提醒。
+        </p>
+
+        <div v-for="rule in geofenceRules" :key="rule.id" class="geofence-card">
+          <div class="geofence-card__head">
+            <span class="geofence-card__place">
+              <Icon name="pin" :size="14" />
+              {{ placeNameOf(rule) }}
+            </span>
+            <button
+              v-if="confirmingGeofence === rule.id"
+              type="button"
+              class="btn btn--danger btn--sm"
+              :disabled="busy"
+              @click="removeGeofence(rule)"
+            >
+              确认删除
+            </button>
+            <button
+              v-else
+              type="button"
+              class="geofence-card__remove"
+              aria-label="删除这条围栏提醒"
+              @click="confirmingGeofence = rule.id"
+            >
+              <Icon name="trash" :size="14" />
+            </button>
+          </div>
+
+          <div class="config-row">
+            <span class="config-label">地点</span>
+            <div class="chips">
+              <button
+                v-for="place in places.items"
+                :key="place.id"
+                type="button"
+                class="chip"
+                :class="{ 'chip--blue': geofenceConfig(rule).placeId === place.id }"
+                :disabled="
+                  busy ||
+                  (usedPlaceIds.has(place.id) &&
+                    geofenceConfig(rule).placeId !== place.id)
+                "
+                @click="updateGeofence(rule, { placeId: place.id })"
+              >
+                {{ place.name }}
+              </button>
+            </div>
+          </div>
+
+          <div class="config-row">
+            <span class="config-label">提醒</span>
+            <div class="chips">
+              <button
+                v-for="event in GEOFENCE_EVENTS"
+                :key="event.key"
+                type="button"
+                class="chip"
+                :class="{ 'chip--blue': geofenceConfig(rule).event === event.key }"
+                :disabled="busy"
+                @click="setGeofenceEvent(rule, event.key)"
+              >
+                {{ event.label }}
+              </button>
+            </div>
+          </div>
+
+          <div class="config-row">
+            <span class="config-label">时段</span>
+            <div class="chips">
+              <button
+                type="button"
+                class="chip"
+                :class="{ 'chip--blue': !geofenceConfig(rule).window }"
+                :disabled="busy"
+                @click="setGeofenceAllDay(rule)"
+              >
+                全天
+              </button>
+              <button
+                type="button"
+                class="chip"
+                :class="{ 'chip--blue': Boolean(geofenceConfig(rule).window) }"
+                :disabled="busy"
+                @click="enableWindow(rule)"
+              >
+                指定时段
+              </button>
+            </div>
+          </div>
+
+          <div v-if="geofenceConfig(rule).window" class="geofence-window">
+            <div class="chips">
+              <button
+                v-for="(label, index) in DAY_LABELS"
+                :key="label"
+                type="button"
+                class="chip day-chip"
+                :class="{
+                  'chip--blue': geofenceConfig(rule).window!.days.includes(index + 1),
+                }"
+                :disabled="busy"
+                @click="toggleDay(rule, index + 1)"
+              >
+                {{ label }}
+              </button>
+            </div>
+            <div class="geofence-times">
+              <input
+                type="time"
+                class="time-input"
+                :value="geofenceConfig(rule).window!.start"
+                :disabled="busy"
+                @change="
+                  setWindowTime(
+                    rule,
+                    'start',
+                    ($event.target as HTMLInputElement).value,
+                  )
+                "
+              />
+              <span>至</span>
+              <input
+                type="time"
+                class="time-input"
+                :value="geofenceConfig(rule).window!.end"
+                :disabled="busy"
+                @change="
+                  setWindowTime(
+                    rule,
+                    'end',
+                    ($event.target as HTMLInputElement).value,
+                  )
+                "
+              />
+              <span class="geofence-times__hint">北京时间</span>
+            </div>
+            <p class="geofence-window__hint">
+              {{ windowLabel(geofenceConfig(rule).window!) }}
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
 
     <template #footer>
@@ -496,5 +801,104 @@ function unfollow(): void {
 
 .member-detail__link:hover {
   text-decoration: underline;
+}
+
+/* ---- Geofence section --------------------------------------------------- */
+
+.geofence-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  margin-top: 2px;
+  border-top: 1px dashed var(--line);
+}
+
+.geofence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 2px;
+}
+
+.geofence-empty {
+  padding: 4px 2px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-muted);
+}
+
+.geofence-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--r-card);
+  background: var(--surface-soft);
+}
+
+.geofence-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.geofence-card__place {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.geofence-card__remove {
+  display: inline-flex;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.geofence-card__remove:hover {
+  color: var(--danger);
+}
+
+.geofence-window {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.geofence-times {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--slate);
+}
+
+.time-input {
+  padding: 6px 8px;
+  border: 1px solid var(--input-line);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.day-chip {
+  min-width: 30px;
+  justify-content: center;
+}
+
+.geofence-window__hint,
+.geofence-times__hint {
+  font-size: 11px;
+  color: var(--ink-muted);
 }
 </style>

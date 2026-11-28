@@ -62,6 +62,7 @@ import com.whereareu.app.core.AppGraph
 import com.whereareu.app.core.location.LocationTrackingService
 import com.whereareu.app.core.location.TrackingManager
 import com.whereareu.app.core.model.LocateUiState
+import com.whereareu.app.core.net.PlaceDto
 import com.whereareu.app.core.permissions.OemHelper
 import com.whereareu.app.core.permissions.PermissionChecker
 import com.whereareu.app.core.util.TimeUtils
@@ -76,6 +77,7 @@ import com.whereareu.app.ui.components.PrimaryButton
 import com.whereareu.app.ui.components.StatusBanner
 import com.whereareu.app.ui.components.StatusPill
 import com.whereareu.app.ui.follow.FollowSheet
+import com.whereareu.app.ui.places.PlaceEditorSheet
 import com.whereareu.app.ui.theme.BorderStrong
 import com.whereareu.app.ui.theme.DangerRed
 import com.whereareu.app.ui.theme.DangerSurface
@@ -116,8 +118,39 @@ fun MapHomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val unreadAlerts by AppGraph.unreadAlerts.collectAsStateWithLifecycle()
     val pendingFocus by AppGraph.pendingMemberFocus.collectAsStateWithLifecycle()
+    val session by AppGraph.sessionStore.state.collectAsStateWithLifecycle(
+        initialValue = null,
+    )
 
     var followMember by remember { mutableStateOf<MemberUi?>(null) }
+    var places by remember { mutableStateOf<List<PlaceDto>>(emptyList()) }
+    var placeEditorOpen by remember { mutableStateOf(false) }
+    var editingPlace by remember { mutableStateOf<PlaceDto?>(null) }
+    var placeDraft by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+
+    val canManagePlace = editingPlace?.let { place ->
+        place.createdBy == session?.userId || session?.familyRole == "admin"
+    } ?: true
+
+    fun openPlaceEditor(placeId: String) {
+        val place = places.firstOrNull { it.id == placeId } ?: return
+        editingPlace = place
+        placeDraft = null
+        placeEditorOpen = true
+    }
+
+    fun openPlaceDraft(lat: Double, lng: Double) {
+        editingPlace = null
+        placeDraft = lat to lng
+        placeEditorOpen = true
+    }
+
+    // Places are family-shared; refresh them when the map becomes active.
+    LaunchedEffect(active) {
+        if (active) {
+            AppGraph.placesRepository.places().onSuccess { places = it }
+        }
+    }
 
     // Notification tap -> open that member's detail sheet.
     LaunchedEffect(pendingFocus) {
@@ -287,6 +320,9 @@ fun MapHomeScreen(
             onSelectMember = viewModel::selectMember,
             modifier = Modifier.fillMaxSize(),
             active = active,
+            places = places,
+            onPlaceClick = ::openPlaceEditor,
+            onMapLongPress = ::openPlaceDraft,
         )
 
         Column(
@@ -489,6 +525,28 @@ fun MapHomeScreen(
         FollowSheet(
             member = member,
             onDismiss = { followMember = null },
+        )
+    }
+
+    if (placeEditorOpen) {
+        PlaceEditorSheet(
+            place = editingPlace,
+            draft = placeDraft,
+            canManage = canManagePlace,
+            onDismiss = { placeEditorOpen = false },
+            onSaved = { saved ->
+                places = if (places.any { it.id == saved.id }) {
+                    places.map { if (it.id == saved.id) saved else it }
+                } else {
+                    places + saved
+                }
+            },
+            onDeleted = { _ ->
+                val removed = editingPlace
+                if (removed != null) {
+                    places = places.filter { it.id != removed.id }
+                }
+            },
         )
     }
 }

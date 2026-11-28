@@ -240,7 +240,7 @@
 
 - 关注是**单向订阅**：A 关注 B，只影响 A 收到的提醒，不改变家庭内互相可见的位置权限。
 - 关注无需对方同意；B 可以通过「关注者列表」看到谁在关注自己，但看不到对方的具体规则。
-- 一个关注下可配置多条规则（每种类型最多一条，最多 5 条）。
+- 一个关注下可配置多条规则（最多 10 条）：`MOVEMENT`/`STALE`/`LOW_BATTERY` 每种最多一条，`GEOFENCE` 可按地点配置多条（同一地点只能一条）。
 - 规则由**服务端**评估；`Alert` 是站内消息的事实来源，设备 WebSocket 只负责尽快送达。
 - 被关注者暂停共享（`sharingPaused=true`）期间不评估任何规则，恢复共享时位置变动规则重新取基准。
 
@@ -251,6 +251,7 @@
 | `MOVEMENT` | `{ thresholdMeters, cooldownMinutes }` | 500 / 30 | 与「上次通知时的位置」比较，移动超过阈值触发；冷却期内不重复，基准不移动 |
 | `STALE` | `{ hours }` | 12 | 超过 N 小时没有新的位置点；规则创建后先等待一次新位置再开始监控 |
 | `LOW_BATTERY` | `{ percent }` | 20 | 电量低于阈值触发；回升到 `percent + 5` 后重新武装 |
+| `GEOFENCE` | `{ placeId, event, window? }` | BOTH / 全天 | 到达或离开某个家庭地点时触发；见 §12 |
 
 范围校验：`thresholdMeters` 200–50000，`cooldownMinutes` 5–1440，`hours` 1–168，`percent` 1–50。
 
@@ -264,7 +265,7 @@
 | POST | `/api/follows` | `{ targetUserId, rules?: [{ type, config? }] }`；已关注 → `200` 返回原记录，新建 → `201` |
 | DELETE | `/api/follows/:id` | `204`，级联删除规则，历史 Alert 保留 |
 | GET | `/api/follows/followers` | `{ followers: [{ userId, nickname, since }] }` |
-| POST | `/api/follows/:id/rules` | `201 { rule }`；同类型重复 → `409 CONFLICT` |
+| POST | `/api/follows/:id/rules` | `201 { rule }`；非围栏同类型重复、同一地点的围栏重复 → `409 CONFLICT` |
 | PATCH | `/api/follows/:id/rules/:ruleId` | `{ enabled?, config? }`，config 与现有值合并后整体校验 |
 | DELETE | `/api/follows/:id/rules/:ruleId` | `204` |
 | GET | `/api/alerts?limit=50&unread=1&after=&before=` | `{ alerts: [Alert], unreadCount }`，按 `createdAt` 倒序，limit 1–100 |
@@ -320,7 +321,77 @@
 | 模型 | 关键字段 |
 |---|---|
 | Follow | id, familyId, followerId, targetId, createdAt; unique(followerId,targetId); index(targetId) |
-| AlertRule | id, followId, type(`MOVEMENT`/`STALE`/`LOW_BATTERY`), enabled, config(JSON), state(JSON), createdAt, updatedAt |
+| AlertRule | id, followId, type(`MOVEMENT`/`STALE`/`LOW_BATTERY`/`GEOFENCE`), enabled, config(JSON), state(JSON), createdAt, updatedAt |
 | Alert | id, userId(接收者), familyId, ruleId?, targetId, type, title, body, data(JSON), silent, dedupeKey(unique), occurredAt, createdAt, readAt?; index(userId, createdAt) |
 
 告警保留 90 天，由服务端扫描任务清理。
+
+## 12. 地点与地理围栏（v1.1.0 新增）
+
+### 12.1 概念
+
+- 地点是**家庭共享**的坐标 + 半径（家、学校、公司等），所有成员可见。
+- 任何成员可创建；**仅创建者或家庭管理员**可编辑/删除。
+- 坐标体系统一为 GCJ-02（与位置上报、高德地图一致）。
+- 每个家庭最多 20 个地点，名称家庭内唯一（忽略大小写与全/半角）。
+- 删除地点会一并删除引用它的 `GEOFENCE` 规则；历史 `Alert` 保留（`data.placeName` 仍可读）。
+
+### 12.2 端点（均为用户 JWT）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/places` | `{ places: [Place] }`，按创建时间升序；含 `usedByRules` |
+| POST | `/api/places` | `{ name, type?, lat, lng, radiusMeters? }` → `201 { place }` |
+| PATCH | `/api/places/:id` | `{ name?, type?, lat?, lng?, radiusMeters? }` → `200 { place }` |
+| DELETE | `/api/places/:id` | `200 { removedRules }` |
+
+`Place`：
+
+```json
+{
+  "id": "p_1", "name": "学校", "type": "school",
+  "lat": 31.6, "lng": 120.7, "radiusMeters": 200,
+  "createdBy": "u_1", "createdAt": "2026-11-28T12:00:00.000Z",
+  "usedByRules": 2
+}
+```
+
+校验：`name` trim 1–20 字符；`type` ∈ `home|school|company|other`；`radiusMeters` 50–5000；每家庭 20 个；重名 → `409`；非创建者/非管理员编辑删除 → `403`；跨家庭 → `404`。
+
+编辑坐标或半径会重置引用规则的围栏基线（下次位置重新判定，不补发进出）。
+
+### 12.3 GEOFENCE 规则
+
+```json
+{
+  "type": "GEOFENCE",
+  "config": {
+    "placeId": "p_1",
+    "event": "BOTH",
+    "window": { "days": [1, 2, 3, 4, 5], "start": "07:00", "end": "09:00" }
+  }
+}
+```
+
+- `event`：`ENTER`（到达）/ `LEAVE`（离开）/ `BOTH`（两者），默认 `BOTH`。
+- `window`：可选；`null`/省略表示全天。`days` 为 1=周一…7=周日，空数组=每天；按**中国时区（UTC+8）**解释，`start` 含、`end` 不含；`start > end` 表示跨天，`days` 指窗口开始那天。
+- 同一关注下同一地点只能有一条围栏规则；`POST /follows/:id/rules` 重复 → `409`。
+- 规则 DTO 附带 `place: { id, name } | null`，方便客户端显示地点名。
+
+判定语义：
+
+- 第一个**可判定**的位置点只建立围栏内/外基线，不提醒。
+- 迟滞：已在围栏内时，需 `距离 - 精度 > 半径` 才判定离开；已在围栏外时，需 `距离 + 精度 < 半径` 才判定进入；精度带按 `min(精度, 半径/2)` 截断，避免小围栏永远无法进入。
+- 精度差于 `max(500m, 半径×3)` 的点直接忽略。
+- 同一规则两次触发至少间隔 60 秒（按点的 `recordedAt`）。
+- 规则创建/重置之后、以及重复或乱序的位置点不会触发提醒；补传中跨越多于 15 分钟的事件仍会入库，但 `silent=true`（不弹系统通知）。
+- 生效时段按点的 `recordedAt` 判断；窗口外的进出只更新状态、不产生告警。
+- 被关注者暂停共享期间不评估；恢复共享时围栏基线重置。
+
+`Alert.data` 额外字段：`{ placeId, placeName, event: "ENTER"|"LEAVE", lat, lng, accuracy, distanceMeters, recordedAt }`。标题为「{昵称} 到{地点}了」/「{昵称} 离开{地点}了」。
+
+### 12.4 数据模型（Prisma）
+
+| 模型 | 关键字段 |
+|---|---|
+| Place | id, familyId, name, nameKey, type, lat, lng, radiusMeters, createdBy, createdAt, updatedAt; unique(familyId, nameKey) |

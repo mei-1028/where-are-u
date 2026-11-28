@@ -55,7 +55,7 @@ export function parseDate(value: string): Date {
 /* Follow / alert rules                                                */
 /* ------------------------------------------------------------------ */
 
-export const RULE_TYPES = ['MOVEMENT', 'STALE', 'LOW_BATTERY'] as const;
+export const RULE_TYPES = ['MOVEMENT', 'STALE', 'LOW_BATTERY', 'GEOFENCE'] as const;
 export type RuleType = (typeof RULE_TYPES)[number];
 
 export const ruleTypeSchema = z.enum(RULE_TYPES);
@@ -79,10 +79,46 @@ export const batteryConfigSchema = z
   })
   .strict();
 
+const clockSchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Time must be HH:mm');
+
+export const geofenceWindowSchema = z
+  .object({
+    /** 1 = Monday ... 7 = Sunday. Empty means every day. */
+    days: z
+      .array(z.number().int().min(1).max(7))
+      .max(7)
+      .default([])
+      .refine((days) => new Set(days).size === days.length, {
+        message: 'days must be unique',
+      }),
+    start: clockSchema,
+    end: clockSchema,
+  })
+  .strict()
+  .refine((window) => window.start !== window.end, {
+    message: 'start and end must differ',
+  });
+
+export const geofenceConfigSchema = z
+  .object({
+    placeId: z.string().min(1).max(64),
+    event: z.enum(['ENTER', 'LEAVE', 'BOTH']).default('BOTH'),
+    window: geofenceWindowSchema.nullable().optional().default(null),
+  })
+  .strict();
+
 export type MovementConfig = z.infer<typeof movementConfigSchema>;
 export type StaleConfig = z.infer<typeof staleConfigSchema>;
 export type BatteryConfig = z.infer<typeof batteryConfigSchema>;
-export type RuleConfig = MovementConfig | StaleConfig | BatteryConfig;
+export type GeofenceWindow = z.infer<typeof geofenceWindowSchema>;
+export type GeofenceConfig = z.infer<typeof geofenceConfigSchema>;
+export type RuleConfig =
+  | MovementConfig
+  | StaleConfig
+  | BatteryConfig
+  | GeofenceConfig;
 
 /** Parses a type-specific config, applying defaults for omitted fields. */
 export function parseRuleConfig(type: RuleType, input: unknown): RuleConfig {
@@ -93,8 +129,38 @@ export function parseRuleConfig(type: RuleType, input: unknown): RuleConfig {
       return parseInput(staleConfigSchema, input ?? {});
     case 'LOW_BATTERY':
       return parseInput(batteryConfigSchema, input ?? {});
+    case 'GEOFENCE':
+      return parseInput(geofenceConfigSchema, input ?? {});
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Places                                                              */
+/* ------------------------------------------------------------------ */
+
+export const PLACE_TYPES = ['home', 'school', 'company', 'other'] as const;
+
+export const placeTypeSchema = z.enum(PLACE_TYPES);
+
+export const createPlaceSchema = z
+  .object({
+    name: z.string().trim().min(1).max(20),
+    type: placeTypeSchema.default('other'),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    radiusMeters: z.number().int().min(50).max(5000).default(200),
+  })
+  .strict();
+
+export const updatePlaceSchema = z
+  .object({
+    name: z.string().trim().min(1).max(20).optional(),
+    type: placeTypeSchema.optional(),
+    lat: z.number().min(-90).max(90).optional(),
+    lng: z.number().min(-180).max(180).optional(),
+    radiusMeters: z.number().int().min(50).max(5000).optional(),
+  })
+  .strict();
 
 export const createFollowSchema = z.object({
   targetUserId: z.string().min(1).max(64),
@@ -105,7 +171,7 @@ export const createFollowSchema = z.object({
         config: z.unknown().optional(),
       }),
     )
-    .max(5)
+    .max(10)
     .optional(),
 });
 

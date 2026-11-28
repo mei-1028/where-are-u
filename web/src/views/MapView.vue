@@ -3,12 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useFamilyStore } from '@/stores/family'
+import { usePlacesStore } from '@/stores/places'
 import { useUiStore } from '@/stores/ui'
 import { useNow } from '@/composables/useNow'
+import type { PlaceInfo } from '@/api/types'
 import Icon from '@/components/Icon.vue'
 import MapCanvas from '@/components/MapCanvas.vue'
 import MemberCard from '@/components/MemberCard.vue'
 import MemberDrawer from '@/components/MemberDrawer.vue'
+import PlaceEditor from '@/components/PlaceEditor.vue'
 import StateBlock from '@/components/StateBlock.vue'
 
 const POLL_INTERVAL = 10_000
@@ -18,12 +21,22 @@ const VISIBLE_ROSTER_MIN_INTERVAL = 12_000
 const route = useRoute()
 const auth = useAuthStore()
 const family = useFamilyStore()
+const places = usePlacesStore()
 const ui = useUiStore()
 const now = useNow()
 
 const selectedId = ref<string | null>(null)
 const membersOpen = ref(false)
 const locatingId = ref<string | null>(null)
+
+const placeEditorOpen = ref(false)
+const editingPlace = ref<PlaceInfo | null>(null)
+const placeDraft = ref<{ lat: number; lng: number } | null>(null)
+const canManagePlace = computed(() => {
+  const place = editingPlace.value
+  if (!place) return true
+  return place.createdBy === auth.user?.id || family.isAdmin
+})
 
 let pollTimer: number | null = null
 
@@ -82,6 +95,26 @@ function handleLocating(active: boolean): void {
   locatingId.value = active ? selectedId.value : null
 }
 
+function openPlaceDraft(lat: number, lng: number): void {
+  editingPlace.value = null
+  placeDraft.value = { lat, lng }
+  selectedId.value = null
+  placeEditorOpen.value = true
+}
+
+function openPlaceEditor(placeId: string): void {
+  const place = places.byId(placeId)
+  if (!place) return
+  editingPlace.value = place
+  placeDraft.value = null
+  selectedId.value = null
+  placeEditorOpen.value = true
+}
+
+function closePlaceEditor(): void {
+  placeEditorOpen.value = false
+}
+
 /**
  * Deep link from a message / browser notification: /?member=<userId>.
  * Applied once per distinct id so closing the drawer is not undone by the
@@ -125,6 +158,11 @@ function tick(): void {
   void family.refreshLatest()
   if (Date.now() - family.rosterSyncedAt >= ROSTER_REFRESH_INTERVAL) {
     void family.refreshRoster()
+  }
+  // Places are shared by the whole family; another member's edit should show
+  // up without a full page reload.
+  if (Date.now() - places.loadedAt >= 60_000) {
+    void places.load(true)
   }
 }
 
@@ -174,6 +212,7 @@ watch(
 onMounted(async () => {
   ui.initNetwork()
   await family.ensureLoaded()
+  void places.ensureLoaded()
   applyMemberQuery(true)
   startPolling()
 })
@@ -265,11 +304,14 @@ onBeforeUnmount(() => {
     <div class="map-region">
       <MapCanvas
         :members="members"
+        :places="places.items"
         :selected-id="selectedId"
         :current-user-id="currentUserId"
         :locating-user-id="locatingId"
         :drawer-open="Boolean(selectedMember)"
         @select="handleMapSelect"
+        @longpress="openPlaceDraft"
+        @place-click="openPlaceEditor"
       />
 
       <button
@@ -344,6 +386,14 @@ onBeforeUnmount(() => {
           />
         </div>
       </Transition>
+
+      <PlaceEditor
+        :open="placeEditorOpen"
+        :place="editingPlace"
+        :draft="placeDraft"
+        :can-manage="canManagePlace"
+        @close="closePlaceEditor"
+      />
     </div>
 
     <div

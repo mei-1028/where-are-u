@@ -52,7 +52,11 @@ export const familyRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch('/families/me/sharing', async (request) => {
     const input = parseInput(sharingSchema, request.body);
-    return setSharingPaused(app.prisma, request.authUser!.userId, input.paused);
+    // Resume resets rule baselines; serialize with ingest so an in-flight
+    // evaluation cannot write the old state back.
+    return app.alertMutex.run(() =>
+      setSharingPaused(app.prisma, request.authUser!.userId, input.paused),
+    );
   });
 
   app.post('/families/invite/reset', async (request) => {

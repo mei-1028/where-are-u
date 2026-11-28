@@ -12,6 +12,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.whereareu.app.core.model.LocationFix
 import com.whereareu.app.core.permissions.PermissionChecker
+import com.whereareu.app.core.util.GeoUtils
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
@@ -135,19 +136,30 @@ class SystemOneShotLocator(private val context: Context) {
         }
     }
 
-    private fun Location.toFix(): LocationFix = LocationFix(
-        lat = latitude,
-        lng = longitude,
-        accuracy = accuracy,
-        speed = speed,
-        bearing = bearing,
-        provider = provider?.takeIf { it.isNotBlank() } ?: "system",
-        // The sample is requested now; acquisition time is more reliable than
-        // a provider's possibly cached Location.time for command freshness.
-        recordedAt = System.currentTimeMillis(),
-        address = null,
-        isMock = isFromMockProvider,
-    )
+    private fun Location.toFix(): LocationFix {
+        // Raw GPS is WGS-84 while the rest of the product (AMap fixes, places,
+        // geofences) is GCJ-02. Fused/network providers on Chinese ROMs often
+        // already apply the offset, so only GPS is converted.
+        val isGps = provider == LocationManager.GPS_PROVIDER
+        val (fixedLat, fixedLng) = if (isGps) {
+            GeoUtils.wgs84ToGcj02(latitude, longitude)
+        } else {
+            latitude to longitude
+        }
+        return LocationFix(
+            lat = fixedLat,
+            lng = fixedLng,
+            accuracy = accuracy,
+            speed = speed,
+            bearing = bearing,
+            provider = provider?.takeIf { it.isNotBlank() } ?: "system",
+            // The sample is requested now; acquisition time is more reliable than
+            // a provider's possibly cached Location.time for command freshness.
+            recordedAt = System.currentTimeMillis(),
+            address = null,
+            isMock = isFromMockProvider,
+        )
+    }
 
     private companion object {
         const val TAG = "SystemOneShotLocator"

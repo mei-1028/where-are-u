@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { MemberView } from '@/api/types'
+import type { MemberView, PlaceInfo, PlaceType } from '@/api/types'
 import { isAmapConfigured, loadAMap } from '@/lib/amap'
 import {
   clamp,
@@ -19,16 +19,23 @@ const props = withDefaults(
     currentUserId?: string | null
     locatingUserId?: string | null
     drawerOpen?: boolean
+    places?: PlaceInfo[]
   }>(),
   {
     selectedId: null,
     currentUserId: null,
     locatingUserId: null,
     drawerOpen: false,
+    places: () => [],
   },
 )
 
-const emit = defineEmits<{ select: [userId: string | null] }>()
+const emit = defineEmits<{
+  select: [userId: string | null]
+  /** Map coordinate picked by long-press (touch) or right-click (desktop). */
+  longpress: [lat: number, lng: number]
+  placeClick: [placeId: string]
+}>()
 
 type MapMode = 'schematic' | 'loading' | 'amap'
 
@@ -77,10 +84,15 @@ let resizeObserver: ResizeObserver | null = null
 let map: any = null
 let amapMarkers: any[] = []
 let amapOverlays: any[] = []
+let amapPlaceOverlays: any[] = []
+let amapPlaceMarkers: any[] = []
 let lastMarkerClickAt = 0
 let initialFitDone = false
 let suppressClick = false
 let suppressTimer = 0
+let longPressTimer = 0
+let longPressAt = 0
+let touchOrigin: { x: number; y: number } | null = null
 
 interface DragState {
   pointerId: number
@@ -204,10 +216,11 @@ function zoomOut(): void {
 function fitAll(): void {
   if (mode.value === 'amap') {
     if (!map) return
-    if (amapMarkers.length > 1) {
-      map.setFitView(amapMarkers, false, [90, 90, 160, 90])
-    } else if (amapMarkers.length === 1) {
-      map.setZoomAndCenter(15, amapMarkers[0].getPosition())
+    const fitTargets = amapMarkers.length > 0 ? amapMarkers : amapPlaceMarkers
+    if (fitTargets.length > 1) {
+      map.setFitView(fitTargets, false, [90, 90, 160, 90])
+    } else if (fitTargets.length === 1) {
+      map.setZoomAndCenter(15, fitTargets[0].getPosition())
     } else {
       map.setZoomAndCenter(13.2, [120.1551, 30.2741])
     }
@@ -311,6 +324,117 @@ function escapeHtml(value: string): string {
   })
 }
 
+const PLACE_TONES: Record<PlaceType, { bg: string; ink: string }> = {
+  home: { bg: '#C3FAF5', ink: '#0F5F5A' },
+  school: { bg: '#E9EDFF', ink: '#2A41B6' },
+  company: { bg: '#FFE6CD', ink: '#8A5A16' },
+  other: { bg: '#FDE0F0', ink: '#7A2A5C' },
+}
+
+function amapPlaceHtml(place: PlaceInfo): string {
+  const tone = PLACE_TONES[place.type] ?? PLACE_TONES.other
+  return `<div class="amap-place" style="--place-bg:${tone.bg};--place-ink:${tone.ink}">
+    <span class="amap-place__dot"></span>
+    <span class="amap-place__name">${escapeHtml(place.name)}</span>
+  </div>`
+}
+
+function syncPlaceOverlays(): void {
+  if (!map || mode.value !== 'amap' || !window.AMap) return
+  const AMap = window.AMap
+  if (amapPlaceOverlays.length) {
+    map.remove(amapPlaceOverlays)
+    amapPlaceOverlays = []
+    amapPlaceMarkers = []
+  }
+  if (props.places.length === 0) return
+
+  const overlays: any[] = []
+  const markers: any[] = []
+  for (const place of props.places) {
+    const circle = new AMap.Circle({
+      center: [place.lng, place.lat],
+      radius: place.radiusMeters,
+      strokeColor: '#1BAFA6',
+      strokeOpacity: 0.55,
+      strokeWeight: 1.5,
+      fillColor: '#1BAFA6',
+      fillOpacity: 0.06,
+      zIndex: 15,
+    })
+    overlays.push(circle)
+
+    const marker = new AMap.Marker({
+      position: [place.lng, place.lat],
+      content: amapPlaceHtml(place),
+      anchor: 'center',
+      zIndex: 90,
+    })
+    marker.on('click', () => {
+      lastMarkerClickAt = Date.now()
+      emit('placeClick', place.id)
+    })
+    overlays.push(marker)
+    markers.push(marker)
+  }
+  map.add(overlays)
+  amapPlaceOverlays = overlays
+  amapPlaceMarkers = markers
+}
+
+function cancelLongPress(): void {
+  if (longPressTimer) {
+    window.clearTimeout(longPressTimer)
+    longPressTimer = 0
+  }
+  touchOrigin = null
+}
+
+function beginLongPress(clientX: number, clientY: number): void {
+  cancelLongPress()
+  if (mode.value !== 'amap' || !map || !amapEl.value) return
+  const rect = amapEl.value.getBoundingClientRect()
+  const x = clientX - rect.left
+  const y = clientY - rect.top
+  touchOrigin = { x: clientX, y: clientY }
+  longPressTimer = window.setTimeout(() => {
+    longPressTimer = 0
+    if (mode.value !== 'amap' || !map) return
+    const AMap = window.AMap
+    if (!AMap) return
+    const lngLat = map.containerToLngLat(new AMap.Pixel(x, y))
+    if (!lngLat) return
+    longPressAt = Date.now()
+    // Suppress the synthetic click that follows touchend.
+    suppressClick = true
+    window.clearTimeout(suppressTimer)
+    suppressTimer = window.setTimeout(() => {
+      suppressClick = false
+    }, 500)
+    emit('longpress', Number(lngLat.getLat()), Number(lngLat.getLng()))
+  }, 600)
+}
+
+function onTouchStart(event: TouchEvent): void {
+  if (event.touches.length !== 1) {
+    cancelLongPress()
+    return
+  }
+  const touch = event.touches[0]!
+  beginLongPress(touch.clientX, touch.clientY)
+}
+
+function onTouchMove(event: TouchEvent): void {
+  if (!touchOrigin || event.touches.length !== 1) return
+  const touch = event.touches[0]!
+  if (
+    Math.abs(touch.clientX - touchOrigin.x) > 12 ||
+    Math.abs(touch.clientY - touchOrigin.y) > 12
+  ) {
+    cancelLongPress()
+  }
+}
+
 function amapBubbleHtml(member: MemberView): string {
   const tone = avatarTone(member.userId)
   const selected = props.selectedId === member.userId
@@ -386,11 +510,16 @@ function syncAmapMarkers(): void {
 
   if (!initialFitDone && markerList.length) {
     initialFitDone = true
-    if (markerList.length > 1) {
-      map.setFitView(markerList, false, [90, 90, 160, 90])
-    } else {
-      map.setZoomAndCenter(15, markerList[0].getPosition())
-    }
+    // AMap needs a tick to lay out freshly added markers; fitting now can be a
+    // no-op and leave the camera at the default Hangzhou center.
+    window.setTimeout(() => {
+      if (!map || mode.value !== 'amap') return
+      if (markerList.length > 1) {
+        map.setFitView(markerList, true, [90, 90, 160, 90])
+      } else {
+        map.setZoomAndCenter(15, markerList[0].getPosition())
+      }
+    }, 60)
   }
 }
 
@@ -423,11 +552,19 @@ async function initAmap(): Promise<void> {
       resizeEnable: true,
     })
     map.on('click', () => {
+      if (Date.now() - longPressAt < 600) return
       if (Date.now() - lastMarkerClickAt > 250) emit('select', null)
+    })
+    map.on('rightclick', (event: any) => {
+      const lngLat = event?.lnglat
+      if (!lngLat) return
+      longPressAt = Date.now()
+      emit('longpress', Number(lngLat.getLat()), Number(lngLat.getLng()))
     })
     mode.value = 'amap'
     await nextTick()
     syncAmapMarkers()
+    syncPlaceOverlays()
     map.resize?.()
   } catch (err) {
     amapError.value = err instanceof Error ? err.message : '高德地图加载失败'
@@ -439,6 +576,14 @@ watch(
   () => props.members,
   () => {
     if (mode.value === 'amap') syncAmapMarkers()
+  },
+  { deep: true },
+)
+
+watch(
+  () => props.places,
+  () => {
+    if (mode.value === 'amap') syncPlaceOverlays()
   },
   { deep: true },
 )
@@ -499,6 +644,11 @@ onBeforeUnmount(() => {
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
     @pointercancel="onPointerUp"
+    @touchstart="onTouchStart"
+    @touchmove="onTouchMove"
+    @touchend="cancelLongPress"
+    @touchcancel="cancelLongPress"
+    @contextmenu.prevent
   >
     <div ref="amapEl" class="amap-layer" :class="{ 'is-visible': mode === 'amap' }" />
 
@@ -1131,7 +1281,33 @@ onBeforeUnmount(() => {
 
 <style>
 /* AMap injects marker DOM outside the Vue scoped-style tree, so these styles
-   are intentionally global but namespaced with .amap-bubble. */
+   are intentionally global but namespaced with .amap-bubble / .amap-place. */
+.amap-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px 4px 7px;
+  border-radius: 999px;
+  background: var(--place-bg, #fde0f0);
+  color: var(--place-ink, #7a2a5c);
+  border: 2px solid #fff;
+  box-shadow:
+    0 0 0 1px rgba(28, 28, 30, 0.06),
+    0 4px 12px -6px rgba(28, 28, 30, 0.35);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.amap-place__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+
 .amap-bubble {
   position: relative;
   width: 44px;

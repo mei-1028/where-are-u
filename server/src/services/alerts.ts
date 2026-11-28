@@ -4,6 +4,8 @@ import { isUniqueConstraintError } from '../lib/prisma.ts';
 import {
   parseRuleConfig,
   type BatteryConfig,
+  type GeofenceConfig,
+  type GeofenceWindow,
   type MovementConfig,
   type RuleType,
   type StaleConfig,
@@ -45,11 +47,54 @@ export interface ArmedState {
 export const MAX_MOVEMENT_ACCURACY_M = 100;
 
 const CHINA_UTC_OFFSET_HOURS = 8;
+const GEOFENCE_MIN_GAP_MS = 60_000;
 
 /** 23:00–07:00 China time. No DST in China, so a fixed offset is exact. */
 export function isQuietHours(now: Date): boolean {
   const hour = (now.getUTCHours() + CHINA_UTC_OFFSET_HOURS) % 24;
   return hour >= 23 || hour < 7;
+}
+
+export function formatChinaTime(at: Date): string {
+  const shifted = new Date(at.getTime() + CHINA_UTC_OFFSET_HOURS * 3_600_000);
+  return `${String(shifted.getUTCHours()).padStart(2, '0')}:${String(
+    shifted.getUTCMinutes(),
+  ).padStart(2, '0')}`;
+}
+
+/**
+ * Whether a geofence rule's time window covers `at` (China time).
+ * `days` uses 1=Monday..7=Sunday and an empty list means every day. A window
+ * with start > end runs overnight and belongs to the day it starts.
+ */
+export function isWithinGeofenceWindow(
+  window: GeofenceWindow | null | undefined,
+  at: Date,
+): boolean {
+  if (!window) return true;
+  const shifted = new Date(at.getTime() + CHINA_UTC_OFFSET_HOURS * 3_600_000);
+  const isoDay = shifted.getUTCDay() === 0 ? 7 : shifted.getUTCDay();
+  const minutes = shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+  const [startHour, startMinute] = window.start.split(':').map(Number);
+  const [endHour, endMinute] = window.end.split(':').map(Number);
+  if (
+    ![startHour, startMinute, endHour, endMinute].every(
+      (value) => typeof value === 'number' && Number.isFinite(value),
+    )
+  ) {
+    return true; // Corrupted window must not silently suppress alerts.
+  }
+
+  const start = startHour * 60 + startMinute;
+  const end = endHour * 60 + endMinute;
+  const dayOk = window.days.length === 0 || window.days.includes(isoDay);
+
+  if (start <= end) return dayOk && minutes >= start && minutes < end;
+  if (dayOk && minutes >= start) return true;
+  const previousIsoDay = isoDay === 1 ? 7 : isoDay - 1;
+  const previousDayOk =
+    window.days.length === 0 || window.days.includes(previousIsoDay);
+  return previousDayOk && minutes < end;
 }
 
 export function haversineMeters(
@@ -268,6 +313,148 @@ export function evaluateStaleRule(
   return { state, draft: null };
 }
 
+export interface GeofenceState {
+  inside: boolean | null;
+  lastFiredAt: string | null;
+  /** Event-time cursor: duplicate/out-of-order points must not flip state. */
+  lastRecordedAtMs: number | null;
+  /** Points recorded before this epoch (rule create/reset) are ignored. */
+  epochMs: number | null;
+}
+
+export interface GeofencePlace {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  radiusMeters: number;
+}
+
+function normalizeGeofenceState(raw: unknown): GeofenceState {
+  const state = (raw ?? {}) as Partial<GeofenceState>;
+  return {
+    inside: typeof state.inside === 'boolean' ? state.inside : null,
+    lastFiredAt: typeof state.lastFiredAt === 'string' ? state.lastFiredAt : null,
+    lastRecordedAtMs:
+      typeof state.lastRecordedAtMs === 'number' ? state.lastRecordedAtMs : null,
+    epochMs: typeof state.epochMs === 'number' ? state.epochMs : null,
+  };
+}
+
+/** Fixes worse than this are ignored for fence transitions. */
+function geofenceAccuracyLimit(radius: number): number {
+  return Math.max(500, radius * 3);
+}
+
+/**
+ * Point-by-point geofence evaluation.
+ *
+ * The first decisive point establishes the inside/outside baseline without
+ * firing. Afterwards a transition is only accepted outside the accuracy band
+ * (capped at half the radius, so a small place can still be entered), so a
+ * noisy fix near the fence does not flap. Points recorded before the rule's
+ * epoch, duplicates, and out-of-order points are ignored.
+ */
+export function evaluateGeofencePoint(
+  config: GeofenceConfig,
+  place: GeofencePlace,
+  rawState: unknown,
+  ruleId: string,
+  nickname: string,
+  point: EvaluatedPoint,
+  now: Date,
+): { state: GeofenceState; draft: AlertDraft | null } {
+  const state = normalizeGeofenceState(rawState);
+  const recordedAtMs = point.recordedAt.getTime();
+
+  // Backlog from before the rule was created/reset must not fire or seed.
+  if (state.epochMs !== null && recordedAtMs < state.epochMs) {
+    return { state, draft: null };
+  }
+  // Duplicate or out-of-order point: the state already reflects a newer fix.
+  if (state.lastRecordedAtMs !== null && recordedAtMs <= state.lastRecordedAtMs) {
+    return { state, draft: null };
+  }
+
+  const distance = haversineMeters(place.lat, place.lng, point.lat, point.lng);
+  const radius = place.radiusMeters;
+  const cursorState: GeofenceState = { ...state, lastRecordedAtMs: recordedAtMs };
+
+  if (point.accuracy > geofenceAccuracyLimit(radius)) {
+    // Too imprecise to say anything about the fence; keep the cursor so the
+    // same fix is not reconsidered.
+    return { state: cursorState, draft: null };
+  }
+
+  // A fix inside the accuracy band cannot decide the state; keep the previous
+  // one (and keep `null` until a decisive fix arrives).
+  const band = Math.min(point.accuracy, radius / 2);
+  let inside = state.inside;
+  if (inside === null) {
+    if (distance <= radius - band) inside = true;
+    else if (distance >= radius + band) inside = false;
+    else return { state: cursorState, draft: null };
+  } else if (inside && distance - band > radius) {
+    inside = false;
+  } else if (!inside && distance + band < radius) {
+    inside = true;
+  }
+
+  const previous = state.inside;
+  if (previous === null || previous === inside) {
+    return { state: { ...cursorState, inside }, draft: null };
+  }
+
+  const event = inside ? 'ENTER' : 'LEAVE';
+  const matchesEvent = config.event === 'BOTH' || config.event === event;
+  const matchesWindow = isWithinGeofenceWindow(config.window ?? null, point.recordedAt);
+  const lastFiredMs = state.lastFiredAt ? Date.parse(state.lastFiredAt) : 0;
+  const gapOk =
+    !lastFiredMs ||
+    point.recordedAt.getTime() - lastFiredMs >= GEOFENCE_MIN_GAP_MS;
+
+  if (!matchesEvent || !matchesWindow || !gapOk) {
+    return { state: { ...cursorState, inside }, draft: null };
+  }
+
+  const time = formatChinaTime(point.recordedAt);
+  const entered = event === 'ENTER';
+  const draft: AlertDraft = {
+    type: 'GEOFENCE',
+    title: entered
+      ? `${nickname} 到${place.name}了`
+      : `${nickname} 离开${place.name}了`,
+    body: entered
+      ? `${time} 进入 ${place.name} 附近`
+      : `${time} 离开 ${place.name} 附近`,
+    data: {
+      placeId: place.id,
+      placeName: place.name,
+      event,
+      lat: point.lat,
+      lng: point.lng,
+      accuracy: point.accuracy,
+      distanceMeters: Math.round(distance),
+      recordedAt: point.recordedAt.toISOString(),
+    },
+    // A backlog transition still belongs in the inbox, but should not buzz a
+    // phone long after the fact.
+    silent: now.getTime() - recordedAtMs > 15 * 60_000,
+    occurredAt: point.recordedAt,
+    dedupeKey: `gf:${ruleId}:${event}:${point.recordedAt.toISOString()}`,
+  };
+
+  return {
+    // Use the point time so a backlog is evaluated in event order.
+    state: {
+      ...cursorState,
+      inside,
+      lastFiredAt: point.recordedAt.toISOString(),
+    },
+    draft,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Persistence + delivery                                              */
 /* ------------------------------------------------------------------ */
@@ -393,7 +580,7 @@ export async function evaluateIngest(
 
   const membership = await prisma.familyMember.findUnique({
     where: { userId: targetUserId },
-    select: { sharingPaused: true },
+    select: { sharingPaused: true, familyId: true },
   });
   if (!membership || membership.sharingPaused) return;
 
@@ -405,6 +592,36 @@ export async function evaluateIngest(
     },
   })) as FollowWithRules[];
   if (follows.length === 0) return;
+
+  // Geofence rules reference a place by id; load the batch's places once.
+  const placeIds = new Set<string>();
+  for (const follow of follows) {
+    for (const rule of follow.rules) {
+      if (rule.type !== 'GEOFENCE') continue;
+      try {
+        const config = parseRuleConfig(
+          'GEOFENCE',
+          JSON.parse(rule.config),
+        ) as GeofenceConfig;
+        placeIds.add(config.placeId);
+      } catch {
+        // Corrupted config: the rule is skipped by evaluateRule below.
+      }
+    }
+  }
+  const placesById = new Map<string, GeofencePlace>();
+  if (placeIds.size > 0) {
+    const places = await prisma.place.findMany({
+      // Family filter: a corrupted config must never leak another family's
+      // place name into an alert.
+      where: {
+        id: { in: Array.from(placeIds) },
+        familyId: membership.familyId,
+      },
+      select: { id: true, name: true, lat: true, lng: true, radiusMeters: true },
+    });
+    for (const place of places) placesById.set(place.id, place);
+  }
 
   const ordered = points
     .slice()
@@ -421,7 +638,7 @@ export async function evaluateIngest(
   for (const follow of follows) {
     for (const rule of follow.rules) {
       try {
-        await evaluateRule(prisma, realtime, follow, rule, ordered, now);
+        await evaluateRule(prisma, realtime, follow, rule, ordered, placesById, now);
       } catch (error) {
         // One broken rule must not block the others; rethrow afterwards so the
         // caller can log it without failing the location write.
@@ -438,6 +655,7 @@ async function evaluateRule(
   follow: FollowWithRules,
   rule: AlertRule,
   points: Array<EvaluatedPoint & { battery?: number }>,
+  places: Map<string, GeofencePlace>,
   now: Date,
 ): Promise<void> {
   const type = rule.type as RuleType;
@@ -508,6 +726,47 @@ async function evaluateRule(
     await prisma.alertRule.update({
       where: { id: rule.id },
       data: { state: JSON.stringify(result.state) },
+    });
+    return;
+  }
+
+  if (type === 'GEOFENCE') {
+    const config = parseRuleConfig(type, readConfig(rule)) as GeofenceConfig;
+    const place = places.get(config.placeId);
+    if (!place) return;
+
+    let state: unknown = parsedState;
+    const drafts: AlertDraft[] = [];
+    for (const point of points) {
+      const result = evaluateGeofencePoint(
+        config,
+        place,
+        state,
+        rule.id,
+        follow.target.nickname,
+        point,
+        now,
+      );
+      state = result.state;
+      if (result.draft) drafts.push(result.draft);
+      // A backlog can legitimately contain one enter and one leave; cap at 4
+      // so a pathological batch cannot produce a notification storm.
+      if (drafts.length >= 4) break;
+    }
+
+    for (const draft of drafts) {
+      await fireAlert(prisma, realtime, {
+        userId: follow.followerId,
+        familyId: follow.familyId,
+        targetId: follow.targetId,
+        targetNickname: follow.target.nickname,
+        ruleId: rule.id,
+        draft,
+      });
+    }
+    await prisma.alertRule.update({
+      where: { id: rule.id },
+      data: { state: JSON.stringify(state) },
     });
     return;
   }
@@ -679,29 +938,35 @@ export async function purgeOldAlerts(
 }
 
 /**
- * Called when a member resumes sharing: drop the movement anchors so the gap
- * while paused is not reported as one huge movement.
+ * Called when a member resumes sharing: drop movement anchors and geofence
+ * baselines so the gap while paused is not reported as a huge movement or a
+ * spurious enter/leave.
  */
-export async function resetMovementAnchors(
+export async function resetRuleBaselines(
   prisma: PrismaClient,
   targetUserId: string,
 ): Promise<void> {
   const rules = await prisma.alertRule.findMany({
-    where: { type: 'MOVEMENT', follow: { targetId: targetUserId } },
-    select: { id: true, state: true },
+    where: {
+      type: { in: ['MOVEMENT', 'GEOFENCE'] },
+      follow: { targetId: targetUserId },
+    },
+    select: { id: true, type: true, state: true },
   });
   for (const rule of rules) {
     const state = parseState(rule.state);
+    const next =
+      rule.type === 'MOVEMENT'
+        ? {
+            ...state,
+            anchorLat: null,
+            anchorLng: null,
+            lastRecordedAtMs: null,
+          }
+        : { ...state, inside: null, epochMs: Date.now() };
     await prisma.alertRule.update({
       where: { id: rule.id },
-      data: {
-        state: JSON.stringify({
-          ...state,
-          anchorLat: null,
-          anchorLng: null,
-          lastRecordedAtMs: null,
-        }),
-      },
+      data: { state: JSON.stringify(next) },
     });
   }
 }

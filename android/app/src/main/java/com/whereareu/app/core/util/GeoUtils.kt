@@ -42,7 +42,13 @@ object GeoUtils {
         return (lat * 2 - gcjLat) to (lng * 2 - gcjLng)
     }
 
-    private fun wgs84ToGcj02(lat: Double, lng: Double): Pair<Double, Double> {
+    /**
+     * WGS-84 (raw GPS) to GCJ-02 (the datum the app stores and the map shows).
+     * Needed for the platform one-shot fallback: its GPS fix is WGS-84, while
+     * everything else in the system (AMap fixes, places) is GCJ-02.
+     */
+    fun wgs84ToGcj02(lat: Double, lng: Double): Pair<Double, Double> {
+        if (isOutsideChina(lat, lng)) return lat to lng
         var dLat = transformLat(lng - 105.0, lat - 35.0)
         var dLng = transformLng(lng - 105.0, lat - 35.0)
         val radLat = lat / 180.0 * Math.PI

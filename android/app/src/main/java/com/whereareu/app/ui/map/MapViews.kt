@@ -53,6 +53,7 @@ import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.MarkerOptions
 import com.amap.api.maps.model.PolylineOptions
 import com.whereareu.app.BuildConfig
+import com.whereareu.app.core.net.PlaceDto
 import com.whereareu.app.ui.theme.BorderHairline
 import com.whereareu.app.ui.theme.CoralPastel
 import com.whereareu.app.ui.theme.Ink
@@ -62,6 +63,7 @@ import com.whereareu.app.ui.theme.PinkPastel
 import com.whereareu.app.ui.theme.SlateText
 import com.whereareu.app.ui.theme.SuccessGreen
 import com.whereareu.app.ui.theme.TealPastel
+import com.whereareu.app.ui.theme.VioletAccent
 import com.whereareu.app.ui.theme.WarningAmber
 import com.whereareu.app.ui.theme.White
 import com.whereareu.app.ui.theme.memberColor
@@ -81,6 +83,9 @@ fun FamilyMap(
     onSelectMember: (String) -> Unit,
     modifier: Modifier = Modifier,
     active: Boolean = true,
+    places: List<PlaceDto> = emptyList(),
+    onPlaceClick: (String) -> Unit = {},
+    onMapLongPress: (Double, Double) -> Unit = { _, _ -> },
 ) {
     if (BuildConfig.AMAP_KEY.isNotBlank()) {
         AmapFamilyMap(
@@ -90,6 +95,9 @@ fun FamilyMap(
             recenterNonce = recenterNonce,
             locatingUserId = locatingUserId,
             onSelectMember = onSelectMember,
+            places = places,
+            onPlaceClick = onPlaceClick,
+            onMapLongPress = onMapLongPress,
             modifier = modifier,
             active = active,
         )
@@ -203,6 +211,9 @@ private fun AmapFamilyMap(
     recenterNonce: Int,
     locatingUserId: String?,
     onSelectMember: (String) -> Unit,
+    places: List<PlaceDto>,
+    onPlaceClick: (String) -> Unit,
+    onMapLongPress: (Double, Double) -> Unit,
     modifier: Modifier = Modifier,
     active: Boolean = true,
 ) {
@@ -274,14 +285,53 @@ private fun AmapFamilyMap(
             }
         }
 
+        places.forEach { place ->
+            val color = placeColor(place.type)
+            map.addCircle(
+                CircleOptions()
+                    .center(LatLng(place.lat, place.lng))
+                    .radius(place.radiusMeters.toDouble())
+                    .strokeWidth(1.5f)
+                    .strokeColor(color.copy(alpha = 0.5f).toArgb())
+                    .fillColor(color.copy(alpha = 0.06f).toArgb()),
+            )
+            val icon = iconCache.getOrPut("place-${place.type}-${place.name}") {
+                buildCircleMarker(
+                    context = context,
+                    colorArgb = color.toArgb(),
+                    label = place.name,
+                    online = true,
+                    selected = false,
+                    locating = false,
+                )
+            }
+            val marker = map.addMarker(
+                MarkerOptions()
+                    .position(LatLng(place.lat, place.lng))
+                    .icon(icon)
+                    .anchor(0.5f, 0.5f)
+                    .title(place.name),
+            )
+            marker?.setObject("place:${place.id}")
+        }
+
         map.setOnMarkerClickListener { marker ->
-            if (active) {
-                (marker?.getObject() as? String)?.let(onSelectMember)
+            val payload = marker?.getObject() as? String
+            if (active && payload != null) {
+                if (payload.startsWith("place:")) {
+                    onPlaceClick(payload.removePrefix("place:"))
+                } else {
+                    onSelectMember(payload)
+                }
             }
             true
         }
 
-        val hasData = members.any { it.hasLocation }
+        map.setOnMapLongClickListener { latLng ->
+            if (active) onMapLongPress(latLng.latitude, latLng.longitude)
+        }
+
+        val hasData = members.any { it.hasLocation } || places.isNotEmpty()
         val cameraKey = "${selectedUserId ?: "none"}|$recenterNonce"
         if (hasData && cameraKey != lastCameraKey) {
             lastCameraKey = cameraKey
@@ -291,9 +341,17 @@ private fun AmapFamilyMap(
                 myUserId = myUserId,
                 selectedUserId = selectedUserId,
                 focusMe = selectedUserId == null && recenterNonce > 0,
+                places = places,
             )
         }
     }
+}
+
+private fun placeColor(type: String): Color = when (type) {
+    "home" -> SuccessGreen
+    "school" -> MiroBlue
+    "company" -> WarningAmber
+    else -> VioletAccent
 }
 
 private fun applyFamilyCamera(
@@ -302,6 +360,7 @@ private fun applyFamilyCamera(
     myUserId: String?,
     selectedUserId: String?,
     focusMe: Boolean,
+    places: List<PlaceDto>,
 ) {
     val selected = members.firstOrNull { it.userId == selectedUserId && it.hasLocation }
     val me = members.firstOrNull { it.userId == myUserId && it.hasLocation }
@@ -329,6 +388,18 @@ private fun applyFamilyCamera(
     val lats = located.mapNotNull { it.lat }
     val lngs = located.mapNotNull { it.lng }
     if (lats.isEmpty() || lngs.isEmpty()) {
+        if (places.isNotEmpty()) {
+            map.moveCamera(
+                CameraUpdateFactory.newLatLngZoom(
+                    LatLng(
+                        places.map { it.lat }.average(),
+                        places.map { it.lng }.average(),
+                    ),
+                    14f,
+                ),
+            )
+            return
+        }
         map.moveCamera(
             CameraUpdateFactory.newLatLngZoom(LatLng(HANGZHOU_LAT, HANGZHOU_LNG), 12f),
         )

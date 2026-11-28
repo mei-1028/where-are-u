@@ -23,6 +23,7 @@ model User {
   followers      Follow[]        @relation("FollowTarget")
   alertsReceived Alert[]         @relation("AlertRecipient")
   alertsAbout    Alert[]         @relation("AlertTarget")
+  places         Place[]
 }
 
 model Family {
@@ -37,6 +38,7 @@ model Family {
   commands        LocateCommand[]
   follows         Follow[]
   alerts          Alert[]
+  places          Place[]
 }
 
 model FamilyMember {
@@ -180,4 +182,26 @@ model Alert {
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
+}
+
+/// A family-shared location (home, school, company...) used by geofence rules.
+/// Rule configs reference it by id; deleting a place deletes those rules.
+model Place {
+  id           String   @id @default(cuid())
+  familyId     String
+  name         String
+  /// NFKC + lowercase, used for case-insensitive uniqueness per family.
+  nameKey      String
+  type         String   @default("other") // "home" | "school" | "company" | "other"
+  lat          Float
+  lng          Float
+  radiusMeters Int      @default(200)
+  createdBy    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  family       Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  creator      User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, nameKey])
+  @@index([familyId])
 }

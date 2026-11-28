@@ -21,6 +21,9 @@ import type {
   LocateCommandResponse,
   LoginInput,
   MeResponse,
+  PlaceInfo,
+  PlaceInput,
+  PlacePatch,
   RegisterInput,
 } from './types'
 
@@ -224,6 +227,26 @@ export const realApi: ApiSurface = {
     },
     markAllRead() {
       return request<{ updated: number }>('/alerts/read-all', { method: 'POST' })
+    },
+  },
+  places: {
+    list() {
+      return request<{ places: PlaceInfo[] }>('/places')
+    },
+    create(input: PlaceInput) {
+      return request<{ place: PlaceInfo }>('/places', { method: 'POST', body: input })
+    },
+    update(id: string, patch: PlacePatch) {
+      return request<{ place: PlaceInfo }>(`/places/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: patch,
+      })
+    },
+    remove(id: string) {
+      return request<{ removedRules: number }>(
+        `/places/${encodeURIComponent(id)}`,
+        { method: 'DELETE' },
+      )
     },
   },
 }

@@ -1,7 +1,12 @@
 package com.whereareu.app.ui.follow
 
+import android.app.TimePickerDialog
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.whereareu.app.core.AppGraph
 import com.whereareu.app.core.net.AlertRuleDto
 import com.whereareu.app.core.net.FollowDto
+import com.whereareu.app.core.net.PlaceDto
 import com.whereareu.app.core.util.toast
 import com.whereareu.app.core.net.toUserMessage
 import com.whereareu.app.ui.components.ChoiceOption
@@ -47,15 +53,24 @@ import com.whereareu.app.ui.theme.BorderHairline
 import com.whereareu.app.ui.theme.DangerRed
 import com.whereareu.app.ui.theme.Ink
 import com.whereareu.app.ui.theme.MiroBlue
+import com.whereareu.app.ui.theme.MiroBlueSoft
 import com.whereareu.app.ui.theme.SlateText
 import com.whereareu.app.ui.theme.SurfaceMuted
 import com.whereareu.app.ui.theme.White
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.util.Locale
 
 private data class RuleTypeUi(
     val type: String,
@@ -73,6 +88,78 @@ private val MOVEMENT_THRESHOLDS = listOf(200, 500, 1000, 2000)
 private val MOVEMENT_COOLDOWNS = listOf(15, 30, 60)
 private val STALE_HOURS = listOf(6, 12, 24, 48)
 private val BATTERY_PERCENTS = listOf(10, 20, 30)
+
+private val GEOFENCE_EVENTS = listOf(
+    "ENTER" to "到达",
+    "LEAVE" to "离开",
+    "BOTH" to "到达和离开",
+)
+private val DAY_LABELS = listOf("一", "二", "三", "四", "五", "六", "日")
+
+private data class GeofenceWindowData(
+    val days: List<Int>,
+    val start: String,
+    val end: String,
+)
+
+private data class GeofenceConfigData(
+    val placeId: String,
+    val event: String,
+    val window: GeofenceWindowData?,
+)
+
+private fun parseGeofenceWindow(element: kotlinx.serialization.json.JsonElement?): GeofenceWindowData? {
+    if (element == null || element is JsonNull) return null
+    val obj = element as? JsonObject ?: return null
+    val days = (obj["days"] as? JsonArray)
+        ?.mapNotNull { (it as? JsonPrimitive)?.intOrNull }
+        ?: emptyList()
+    return GeofenceWindowData(
+        days = days,
+        start = obj["start"]?.jsonPrimitive?.contentOrNull ?: "07:00",
+        end = obj["end"]?.jsonPrimitive?.contentOrNull ?: "09:00",
+    )
+}
+
+private fun parseGeofenceConfig(config: JsonObject?): GeofenceConfigData {
+    return GeofenceConfigData(
+        placeId = config?.get("placeId")?.jsonPrimitive?.contentOrNull ?: "",
+        event = config?.get("event")?.jsonPrimitive?.contentOrNull ?: "BOTH",
+        window = parseGeofenceWindow(config?.get("window")),
+    )
+}
+
+private fun buildGeofenceJson(config: GeofenceConfigData): JsonObject = buildJsonObject {
+    put("placeId", config.placeId)
+    put("event", config.event)
+    val window = config.window
+    if (window == null) {
+        put("window", JsonNull)
+    } else {
+        put(
+            "window",
+            buildJsonObject {
+                put(
+                    "days",
+                    buildJsonArray { window.days.sorted().forEach { add(it) } },
+                )
+                put("start", window.start)
+                put("end", window.end)
+            },
+        )
+    }
+}
+
+private fun geofenceWindowLabel(window: GeofenceWindowData): String {
+    val days = when {
+        window.days.isEmpty() || window.days.size == 7 -> "每天"
+        window.days.sorted() == listOf(1, 2, 3, 4, 5) -> "工作日"
+        window.days.sorted() == listOf(6, 7) -> "周末"
+        else -> window.days.sorted().joinToString("、") { "周${DAY_LABELS.getOrElse(it - 1) { "?" }}" }
+    }
+    val overnight = if (window.start > window.end) "（跨天）" else ""
+    return "$days ${window.start}–${window.end}$overnight"
+}
 
 private fun AlertRuleDto.intConfig(key: String): Int? =
     config?.get(key)?.let { element ->
@@ -95,6 +182,7 @@ fun FollowSheet(
     var busy by remember { mutableStateOf(false) }
     var selectedTypes by remember { mutableStateOf(setOf("MOVEMENT", "STALE")) }
     var confirmingUnfollow by remember { mutableStateOf(false) }
+    var places by remember { mutableStateOf<List<PlaceDto>>(emptyList()) }
 
     fun reload() {
         scope.launch {
@@ -104,6 +192,7 @@ fun FollowSheet(
                     follow = list.firstOrNull { it.target.userId == member.userId }
                 }
                 .onFailure { context.toast("关注信息加载失败：${it.toUserMessage()}") }
+            AppGraph.placesRepository.places().onSuccess { places = it }
             loading = false
         }
     }
@@ -132,6 +221,67 @@ fun FollowSheet(
                 busy = false
             }
         }
+    }
+
+    fun geofenceConfigOf(rule: AlertRuleDto): GeofenceConfigData =
+        parseGeofenceConfig(rule.config)
+
+    fun addGeofence(current: FollowDto) {
+        val used = current.rules
+            .filter { it.type == "GEOFENCE" }
+            .map { geofenceConfigOf(it).placeId }
+            .toSet()
+        val place = places.firstOrNull { it.id !in used }
+        if (place == null) {
+            context.toast("先在地图上长按添加一个地点")
+            return
+        }
+        launchBusy {
+            repository.createRule(
+                current.id,
+                "GEOFENCE",
+                buildGeofenceJson(GeofenceConfigData(place.id, "BOTH", null)),
+            ).onSuccess(::replaceRule).onFailure { throw it }
+        }
+    }
+
+    fun applyGeofence(
+        current: FollowDto,
+        rule: AlertRuleDto,
+        config: GeofenceConfigData,
+    ) {
+        launchBusy {
+            repository.updateRule(
+                current.id,
+                rule.id,
+                config = buildGeofenceJson(config),
+            ).onSuccess(::replaceRule).onFailure { throw it }
+        }
+    }
+
+    fun removeGeofence(current: FollowDto, rule: AlertRuleDto) {
+        launchBusy {
+            repository.deleteRule(current.id, rule.id)
+                .onSuccess {
+                    follow = current.copy(
+                        rules = current.rules.filterNot { it.id == rule.id },
+                    )
+                }
+                .onFailure { throw it }
+        }
+    }
+
+    fun pickTime(initial: String, onPicked: (String) -> Unit) {
+        val parts = initial.split(":")
+        val hour = parts.getOrNull(0)?.toIntOrNull() ?: 7
+        val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        TimePickerDialog(
+            context,
+            { _, h, m -> onPicked(String.format(Locale.US, "%02d:%02d", h, m)) },
+            hour,
+            minute,
+            true,
+        ).show()
     }
 
     LaunchedEffect(member.userId) { reload() }
@@ -250,6 +400,19 @@ fun FollowSheet(
                             }
                         }
                     }
+
+                    Spacer(Modifier.height(10.dp))
+                    GeofenceSection(
+                        rules = current.rules.filter { it.type == "GEOFENCE" },
+                        places = places,
+                        busy = busy,
+                        onAdd = { addGeofence(current) },
+                        onUpdate = { rule, config ->
+                            applyGeofence(current, rule, config)
+                        },
+                        onRemove = { rule -> removeGeofence(current, rule) },
+                        onPickTime = ::pickTime,
+                    )
 
                     Spacer(Modifier.height(18.dp))
                     if (confirmingUnfollow) {
@@ -401,5 +564,282 @@ private fun ConfigRow(
             onSelect = { key -> key.toIntOrNull()?.let(onSelect) },
             modifier = Modifier.weight(1f),
         )
+    }
+}
+
+@Composable
+private fun SelectChip(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) MiroBlueSoft else White)
+            .border(
+                width = 1.dp,
+                color = if (selected) MiroBlue else BorderHairline,
+                shape = RoundedCornerShape(999.dp),
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) MiroBlue else Ink,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun GeofenceSection(
+    rules: List<AlertRuleDto>,
+    places: List<PlaceDto>,
+    busy: Boolean,
+    onAdd: () -> Unit,
+    onUpdate: (AlertRuleDto, GeofenceConfigData) -> Unit,
+    onRemove: (AlertRuleDto) -> Unit,
+    onPickTime: (String, (String) -> Unit) -> Unit,
+) {
+    var confirmingId by remember { mutableStateOf<String?>(null) }
+    val used = rules.map { parseGeofenceConfig(it.config).placeId }.toSet()
+    val canAdd = rules.size < 10 && places.any { it.id !in used }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "到达 / 离开某地",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Ink,
+                )
+                Text(
+                    text = "家人进出家庭地点时提醒，可设置生效时段",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SlateText,
+                )
+            }
+            TextButton(onClick = onAdd, enabled = canAdd && !busy) {
+                Text("添加", color = if (canAdd && !busy) MiroBlue else SlateText)
+            }
+        }
+
+        if (places.isEmpty()) {
+            Text(
+                text = "还没有家庭地点。先回到地图，长按任意位置添加。",
+                style = MaterialTheme.typography.bodySmall,
+                color = SlateText,
+            )
+        }
+
+        rules.forEach { rule ->
+            val config = parseGeofenceConfig(rule.config)
+            val placeName = rule.place?.name
+                ?: places.firstOrNull { it.id == config.placeId }?.name
+                ?: "地点已删除"
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(SurfaceMuted)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = placeName,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Ink,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (confirmingId == rule.id) {
+                        TextButton(
+                            onClick = {
+                                onRemove(rule)
+                                confirmingId = null
+                            },
+                            enabled = !busy,
+                        ) {
+                            Text("确认删除", color = DangerRed)
+                        }
+                    } else {
+                        TextButton(onClick = { confirmingId = rule.id }) {
+                            Text("删除", color = SlateText)
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "地点",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = SlateText,
+                        modifier = Modifier.width(40.dp),
+                    )
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        places.forEach { place ->
+                            SelectChip(
+                                label = place.name,
+                                selected = config.placeId == place.id,
+                                enabled = !busy &&
+                                    (config.placeId == place.id || place.id !in used),
+                                onClick = {
+                                    onUpdate(rule, config.copy(placeId = place.id))
+                                },
+                            )
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "提醒",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = SlateText,
+                        modifier = Modifier.width(40.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        GEOFENCE_EVENTS.forEach { (key, label) ->
+                            SelectChip(
+                                label = label,
+                                selected = config.event == key,
+                                enabled = !busy,
+                                onClick = { onUpdate(rule, config.copy(event = key)) },
+                            )
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "时段",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = SlateText,
+                        modifier = Modifier.width(40.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SelectChip(
+                            label = "全天",
+                            selected = config.window == null,
+                            enabled = !busy,
+                            onClick = { onUpdate(rule, config.copy(window = null)) },
+                        )
+                        SelectChip(
+                            label = "指定时段",
+                            selected = config.window != null,
+                            enabled = !busy,
+                            onClick = {
+                                if (config.window == null) {
+                                    onUpdate(
+                                        rule,
+                                        config.copy(
+                                            window = GeofenceWindowData(
+                                                days = listOf(1, 2, 3, 4, 5),
+                                                start = "07:00",
+                                                end = "09:00",
+                                            ),
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    }
+                }
+
+                val window = config.window
+                if (window != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        DAY_LABELS.forEachIndexed { index, label ->
+                            val day = index + 1
+                            SelectChip(
+                                label = label,
+                                selected = window.days.contains(day),
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    val days = if (window.days.contains(day)) {
+                                        window.days - day
+                                    } else {
+                                        (window.days + day).sorted()
+                                    }
+                                    onUpdate(
+                                        rule,
+                                        config.copy(window = window.copy(days = days)),
+                                    )
+                                },
+                            )
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("起", style = MaterialTheme.typography.labelSmall, color = SlateText)
+                        TextButton(
+                            enabled = !busy,
+                            onClick = {
+                                onPickTime(window.start) { value ->
+                                    onUpdate(
+                                        rule,
+                                        config.copy(window = window.copy(start = value)),
+                                    )
+                                }
+                            },
+                        ) {
+                            Text(window.start, color = MiroBlue)
+                        }
+                        Text("至", style = MaterialTheme.typography.labelSmall, color = SlateText)
+                        TextButton(
+                            enabled = !busy,
+                            onClick = {
+                                onPickTime(window.end) { value ->
+                                    onUpdate(
+                                        rule,
+                                        config.copy(window = window.copy(end = value)),
+                                    )
+                                }
+                            },
+                        ) {
+                            Text(window.end, color = MiroBlue)
+                        }
+                        Text(
+                            text = "北京时间",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = SlateText,
+                        )
+                    }
+
+                    Text(
+                        text = geofenceWindowLabel(window),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = SlateText,
+                    )
+                }
+            }
+        }
     }
 }

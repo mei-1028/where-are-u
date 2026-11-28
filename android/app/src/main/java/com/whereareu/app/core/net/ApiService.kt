@@ -136,4 +136,21 @@ interface ApiService {
 
     @POST("alerts/read-all")
     suspend fun markAllAlertsRead(): ReadAllResponse
+
+    // Places ----------------------------------------------------------------
+
+    @GET("places")
+    suspend fun places(): PlacesResponse
+
+    @POST("places")
+    suspend fun createPlace(@Body body: CreatePlaceRequest): PlaceResponse
+
+    @PATCH("places/{id}")
+    suspend fun updatePlace(
+        @Path("id") placeId: String,
+        @Body body: UpdatePlaceRequest,
+    ): PlaceResponse
+
+    @DELETE("places/{id}")
+    suspend fun deletePlace(@Path("id") placeId: String): DeletePlaceResponse
 }

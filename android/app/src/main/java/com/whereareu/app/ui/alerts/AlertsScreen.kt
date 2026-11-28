@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.HorizontalDivider
@@ -56,6 +57,7 @@ import com.whereareu.app.ui.theme.MiroBlueSoft
 import com.whereareu.app.ui.theme.OrangePastel
 import com.whereareu.app.ui.theme.SlateText
 import com.whereareu.app.ui.theme.SurfaceMuted
+import com.whereareu.app.ui.theme.TealPastel
 import com.whereareu.app.ui.theme.White
 import com.whereareu.app.ui.viewModelFactoryFor
 
@@ -69,6 +71,7 @@ private fun typeUi(type: String): AlertTypeUi = when (type) {
     "MOVEMENT" -> AlertTypeUi(Icons.AutoMirrored.Filled.TrendingUp, MiroBlueSoft, "位置变动")
     "STALE" -> AlertTypeUi(Icons.Filled.Schedule, OrangePastel, "长时间未更新")
     "LOW_BATTERY" -> AlertTypeUi(Icons.Filled.BatteryAlert, CoralPastel, "低电量")
+    "GEOFENCE" -> AlertTypeUi(Icons.Filled.Place, TealPastel, "到达 / 离开")
     else -> AlertTypeUi(Icons.Filled.Notifications, SurfaceMuted, "提醒")
 }
 

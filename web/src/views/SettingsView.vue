@@ -3,8 +3,10 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { isMockMode } from '@/api'
 import { api } from '@/api'
+import type { PlaceInfo, PlaceType } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useFamilyStore } from '@/stores/family'
+import { usePlacesStore } from '@/stores/places'
 import { useUiStore } from '@/stores/ui'
 import { messageForError } from '@/lib/errors'
 import { getApiBase } from '@/lib/session'
@@ -16,12 +18,41 @@ import {
 import Avatar from '@/components/Avatar.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import Icon from '@/components/Icon.vue'
+import PlaceEditor from '@/components/PlaceEditor.vue'
 
 
 const auth = useAuthStore()
 const family = useFamilyStore()
+const places = usePlacesStore()
 const ui = useUiStore()
 const router = useRouter()
+
+const placeEditorOpen = ref(false)
+const editingPlace = ref<PlaceInfo | null>(null)
+const canManagePlace = computed(() => {
+  const place = editingPlace.value
+  if (!place) return true
+  return place.createdBy === auth.user?.id || family.isAdmin
+})
+
+const PLACE_ICONS: Record<PlaceType, string> = {
+  home: 'home',
+  school: 'school',
+  company: 'building',
+  other: 'pin',
+}
+
+const PLACE_LABELS: Record<PlaceType, string> = {
+  home: '家',
+  school: '学校',
+  company: '公司',
+  other: '其他',
+}
+
+function openPlaceEditor(place: PlaceInfo): void {
+  editingPlace.value = place
+  placeEditorOpen.value = true
+}
 
 const nickname = ref(auth.user?.nickname ?? '')
 const clearOpen = ref(false)
@@ -60,6 +91,7 @@ async function enableDesktopNotifications(): Promise<void> {
 
 onMounted(async () => {
   await family.ensureLoaded()
+  void places.ensureLoaded()
   if (!nickname.value) nickname.value = auth.user?.nickname ?? ''
 })
 
@@ -237,6 +269,45 @@ function confirmLogout(): void {
           <section class="card">
             <div class="card-head">
               <span class="card-head__title">
+                <span class="card-label">家庭地点</span>
+                <span class="tag">{{ places.items.length }} / 20</span>
+              </span>
+            </div>
+            <p class="setting-row__desc">
+              在地图上长按或右键选点即可添加；删除地点会同时移除引用它的围栏提醒。
+            </p>
+            <p v-if="places.items.length === 0" class="place-empty">
+              还没有地点。{{ isMockMode ? '' : '在地图上长按添加第一个地点。' }}
+            </p>
+            <ul v-else class="place-list">
+              <li v-for="place in places.items" :key="place.id">
+                <button
+                  type="button"
+                  class="place-row"
+                  @click="openPlaceEditor(place)"
+                >
+                  <span class="place-row__icon" :class="`place-row__icon--${place.type}`">
+                    <Icon :name="PLACE_ICONS[place.type]" :size="16" />
+                  </span>
+                  <span class="place-row__copy">
+                    <strong>{{ place.name }}</strong>
+                    <span>
+                      {{ PLACE_LABELS[place.type] }} · 半径 {{ place.radiusMeters }} 米
+                      <template v-if="place.usedByRules > 0">
+                        · {{ place.usedByRules }} 条提醒
+                      </template>
+                    </span>
+                  </span>
+                  <Icon name="chevron-right" :size="15" class="place-row__chevron" />
+                </button>
+              </li>
+            </ul>
+            <p v-if="places.error" class="place-empty">{{ places.error }}</p>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <span class="card-head__title">
                 <span class="card-label">通知提醒</span>
                 <span class="tag tag--blue">关注提醒</span>
               </span>
@@ -404,6 +475,13 @@ function confirmLogout(): void {
       confirm-label="退出登录"
       @cancel="logoutOpen = false"
       @confirm="confirmLogout"
+    />
+
+    <PlaceEditor
+      :open="placeEditorOpen"
+      :place="editingPlace"
+      :can-manage="canManagePlace"
+      @close="placeEditorOpen = false"
     />
   </div>
 </template>
@@ -841,5 +919,91 @@ function confirmLogout(): void {
   .account-avatar-btn {
     display: none;
   }
+}
+
+/* ---- Family places ------------------------------------------------------ */
+
+.place-empty {
+  padding: 6px 0 2px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  line-height: 1.6;
+}
+
+.place-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.place-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 4px;
+  border-radius: 10px;
+  text-align: left;
+  transition: background-color 0.14s;
+}
+
+.place-row:hover {
+  background: var(--surface-soft);
+}
+
+.place-row + .place-row {
+  border-top: 1px solid var(--line);
+}
+
+.place-row__icon {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.place-row__icon--home {
+  background: var(--teal);
+  color: var(--teal-ink);
+}
+
+.place-row__icon--school {
+  background: var(--blue-soft);
+  color: var(--blue-pressed);
+}
+
+.place-row__icon--company {
+  background: var(--orange);
+  color: var(--orange-ink);
+}
+
+.place-row__icon--other {
+  background: var(--pink);
+  color: var(--ink);
+}
+
+.place-row__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.place-row__copy strong {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.place-row__copy span {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.place-row__chevron {
+  color: var(--ink-muted);
 }
 </style>

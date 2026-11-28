@@ -33,6 +33,7 @@ const TYPE_META: Record<
   MOVEMENT: { icon: 'navigation', tone: 'blue', label: '位置变动' },
   STALE: { icon: 'clock', tone: 'orange', label: '长时间未更新' },
   LOW_BATTERY: { icon: 'battery', tone: 'coral', label: '低电量' },
+  GEOFENCE: { icon: 'pin', tone: 'teal', label: '到达/离开' },
 }
 
 function metaOf(type: AlertRuleType) {
@@ -286,6 +287,11 @@ onMounted(() => {
 .alert-row__icon--coral {
   background: var(--coral);
   color: var(--coral-ink);
+}
+
+.alert-row__icon--teal {
+  background: var(--teal);
+  color: var(--teal-ink);
 }
 
 .alert-row__copy {

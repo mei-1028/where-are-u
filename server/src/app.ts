@@ -14,6 +14,7 @@ import { followRoutes } from './routes/follows.ts';
 import { healthRoutes } from './routes/health.ts';
 import { locateRoutes } from './routes/locate.ts';
 import { locationRoutes } from './routes/locations.ts';
+import { placeRoutes } from './routes/places.ts';
 import { wsRoutes } from './routes/ws.ts';
 import { sweepAlerts } from './services/alerts.ts';
 import { RealtimeHub } from './services/realtime.ts';
@@ -66,6 +67,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
       await api.register(locateRoutes);
       await api.register(followRoutes);
       await api.register(alertRoutes);
+      await api.register(placeRoutes);
     },
     { prefix: '/api' },
   );

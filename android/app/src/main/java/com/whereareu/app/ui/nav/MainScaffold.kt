@@ -38,6 +38,7 @@ import com.whereareu.app.ui.family.FamilyScreen
 import com.whereareu.app.ui.family.InviteScreen
 import com.whereareu.app.ui.history.HistoryScreen
 import com.whereareu.app.ui.map.MapHomeScreen
+import com.whereareu.app.ui.places.PlacesScreen
 import com.whereareu.app.ui.settings.SettingsScreen
 import com.whereareu.app.ui.theme.BorderHairline
 import com.whereareu.app.ui.theme.MiroBlue
@@ -54,6 +55,7 @@ private enum class MainTab(val label: String, val icon: ImageVector) {
 private const val OVERLAY_HISTORY = "history"
 private const val OVERLAY_INVITE = "invite"
 private const val OVERLAY_ALERTS = "alerts"
+private const val OVERLAY_PLACES = "places"
 
 @Composable
 fun MainScaffold(
@@ -172,6 +174,7 @@ fun MainScaffold(
 
                         MainTab.SETTINGS -> SettingsScreen(
                             onLoggedOut = onLoggedOut,
+                            onOpenPlaces = { overlayRoute = OVERLAY_PLACES },
                         )
 
                         MainTab.MAP -> Unit
@@ -230,6 +233,19 @@ fun MainScaffold(
                         overlayRoute = null
                     },
                 )
+            }
+
+            OVERLAY_PLACES -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(White)
+                    .clickable(
+                        interactionSource = overlayInteraction,
+                        indication = null,
+                        onClick = {},
+                    ),
+            ) {
+                PlacesScreen(onBack = { overlayRoute = null })
             }
         }
     }

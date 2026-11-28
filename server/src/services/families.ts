@@ -12,7 +12,7 @@ import {
 import { isUniqueConstraintError } from '../lib/prisma.ts';
 import { toLastLocation, type LastLocationDto } from '../lib/serializers.ts';
 import { inviteExpiryFrom } from '../lib/time.ts';
-import { resetMovementAnchors } from './alerts.ts';
+import { resetRuleBaselines } from './alerts.ts';
 import { cleanupFollowsForUser } from './follows.ts';
 import { requireAdmin, requireMembership } from './memberships.ts';
 
@@ -246,8 +246,8 @@ export async function setSharingPaused(
     data: { sharingPaused: paused },
     select: { sharingPaused: true },
   });
-  // Resume with a fresh movement baseline: the pause gap is not a "move".
-  if (!paused) await resetMovementAnchors(prisma, userId);
+  // Resume with fresh baselines: the pause gap is not a move or a fence trip.
+  if (!paused) await resetRuleBaselines(prisma, userId);
   return { sharingPaused: updated.sharingPaused };
 }
 

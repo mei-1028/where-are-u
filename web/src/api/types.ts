@@ -138,7 +138,7 @@ export interface HistoryResponse {
   points: LocationPoint[]
 }
 
-export type AlertRuleType = 'MOVEMENT' | 'STALE' | 'LOW_BATTERY'
+export type AlertRuleType = 'MOVEMENT' | 'STALE' | 'LOW_BATTERY' | 'GEOFENCE'
 
 export interface MovementRuleConfig {
   thresholdMeters: number
@@ -153,13 +153,31 @@ export interface BatteryRuleConfig {
   percent: number
 }
 
-export type AlertRuleConfig = MovementRuleConfig | StaleRuleConfig | BatteryRuleConfig
+export interface GeofenceWindow {
+  /** 1 = Monday ... 7 = Sunday; empty means every day. */
+  days: number[]
+  start: string
+  end: string
+}
+
+export interface GeofenceRuleConfig {
+  placeId: string
+  event: 'ENTER' | 'LEAVE' | 'BOTH'
+  window?: GeofenceWindow | null
+}
+
+export type AlertRuleConfig =
+  | MovementRuleConfig
+  | StaleRuleConfig
+  | BatteryRuleConfig
+  | GeofenceRuleConfig
 
 export interface AlertRuleInfo {
   id: string
   type: AlertRuleType
   enabled: boolean
   config: AlertRuleConfig
+  place: { id: string; name: string } | null
   lastFiredAt: string | null
 }
 
@@ -185,6 +203,9 @@ export interface AlertData {
   lastRecordedAt?: string
   battery?: number
   hours?: number
+  placeId?: string
+  placeName?: string
+  event?: 'ENTER' | 'LEAVE'
 }
 
 export interface AlertInfo {
@@ -215,6 +236,33 @@ export interface AlertListOptions {
 export interface CreateFollowInput {
   targetUserId: string
   rules?: Array<{ type: AlertRuleType; config?: Record<string, unknown> }>
+}
+
+export type PlaceType = 'home' | 'school' | 'company' | 'other'
+
+export interface PlaceInfo {
+  id: string
+  name: string
+  type: PlaceType
+  lat: number
+  lng: number
+  radiusMeters: number
+  createdBy: string
+  createdAt: string
+  usedByRules: number
+}
+
+export interface PlaceInput {
+  name: string
+  type?: PlaceType
+  lat: number
+  lng: number
+  radiusMeters?: number
+}
+
+export type PlacePatch = Partial<Omit<PlaceInput, 'lat' | 'lng'>> & {
+  lat?: number
+  lng?: number
 }
 
 export interface ApiSurface {
@@ -271,5 +319,11 @@ export interface ApiSurface {
     list(options?: AlertListOptions): Promise<AlertsResponse>
     markRead(id: string): Promise<void>
     markAllRead(): Promise<{ updated: number }>
+  }
+  places: {
+    list(): Promise<{ places: PlaceInfo[] }>
+    create(input: PlaceInput): Promise<{ place: PlaceInfo }>
+    update(id: string, patch: PlacePatch): Promise<{ place: PlaceInfo }>
+    remove(id: string): Promise<{ removedRules: number }>
   }
 }
