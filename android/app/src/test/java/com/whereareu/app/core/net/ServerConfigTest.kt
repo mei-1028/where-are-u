@@ -48,4 +48,32 @@ class ServerConfigTest {
             ServerConfig.websocketUrl("example.com"),
         )
     }
+
+    @Test
+    fun `stored plain http url is upgraded when the build default is https on the same host`() {
+        assertEquals(
+            "https://182.254.155.179",
+            ServerConfig.migrateStored("http://182.254.155.179:18080", "https://182.254.155.179"),
+        )
+    }
+
+    @Test
+    fun `a user chosen server on another host is never rewritten`() {
+        assertEquals(
+            "http://192.168.0.102:3000",
+            ServerConfig.migrateStored("http://192.168.0.102:3000", "https://182.254.155.179"),
+        )
+    }
+
+    @Test
+    fun `blank stored url falls back to the build default`() {
+        assertEquals(
+            "https://182.254.155.179",
+            ServerConfig.migrateStored(null, "https://182.254.155.179"),
+        )
+        assertEquals(
+            "https://182.254.155.179",
+            ServerConfig.migrateStored("   ", "https://182.254.155.179"),
+        )
+    }
 }

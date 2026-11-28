@@ -1,0 +1,13 @@
+# Orca 远程配对中转：VPS:16768 -> 家里 Orca 6768
+# 由 NAS 上的 frpc 承担，客户端看到的来源地址是 NAS 的局域网 IP，
+# 因此 Orca 的“仅接受局域网/环回/Tailscale”限制可以通过。
+#
+# 部署位置：/usr/local/frp/whereareu-frpc.toml（追加 [[proxies]] 段）
+# 重启：systemctl restart whereareu-frpc
+
+[[proxies]]
+name = "orca-runtime"
+type = "tcp"
+localIP = "192.168.0.102"
+localPort = 6768
+remotePort = 16768

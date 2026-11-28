@@ -68,6 +68,25 @@ object ServerConfig {
 
     fun isValid(raw: String): Boolean = normalize(raw).toHttpUrlOrNull() != null
 
+    /**
+     * Upgrades a persisted base URL to the build's built-in HTTPS default when
+     * both point at the same host.
+     *
+     * Older builds wrote the plain-HTTP endpoint into DataStore, so changing
+     * only [BuildConfig.API_BASE_URL] would never reach a device that already
+     * logged in: the stored value wins forever. A user-chosen server on a
+     * different host is left untouched.
+     */
+    fun migrateStored(stored: String?, builtIn: String): String {
+        val fallback = normalize(builtIn)
+        val current = stored?.takeIf { it.isNotBlank() }?.let(::normalize) ?: return fallback
+        if (current == fallback) return current
+        val currentUrl = current.toHttpUrlOrNull() ?: return current
+        val builtInUrl = fallback.toHttpUrlOrNull() ?: return current
+        val sameHost = currentUrl.host.equals(builtInUrl.host, ignoreCase = true)
+        return if (sameHost && !currentUrl.isHttps && builtInUrl.isHttps) fallback else current
+    }
+
     fun websocketUrl(rawBase: String): String? {
         val base = normalize(rawBase).toHttpUrlOrNull() ?: return null
         return base.newBuilder()

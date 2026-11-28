@@ -26,7 +26,7 @@ function Find-Adb {
 }
 
 $adb = Find-Adb
-if (-not $Apk) { $Apk = Join-Path $PSScriptRoot "where-are-u-1.0.1.apk" }
+if (-not $Apk) { $Apk = Join-Path $PSScriptRoot "where-are-u-1.0.2.apk" }
 
 if (-not $Serial) {
     $devices = (& $adb devices) | Select-String '^\S+\s+device$' | ForEach-Object { ($_ -split '\s+')[0] }
@@ -75,7 +75,11 @@ if ($LASTEXITCODE -ne 0) { throw "安装失败" }
 
 $versionLine = (& $adb -s $Serial shell dumpsys package com.whereareu.app | Select-String 'versionName=' | Select-Object -First 1)
 Write-Host "版本: $($versionLine.ToString().Trim())"
-if ($versionLine -notmatch '1\.0\.1') { Write-Host "警告: 当前不是 1.0.1" -ForegroundColor Yellow }
+# 期望版本取自 APK 文件名（where-are-u-<version>.apk），避免每次发版都改脚本。
+$expectedVersion = [IO.Path]::GetFileNameWithoutExtension($Apk) -replace '^where-are-u-', ''
+if ($expectedVersion -and $versionLine -notmatch [regex]::Escape($expectedVersion)) {
+    Write-Host "警告: 期望 $expectedVersion，实际不一致" -ForegroundColor Yellow
+}
 
 foreach ($p in @(
     'android.permission.POST_NOTIFICATIONS',

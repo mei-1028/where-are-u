@@ -83,9 +83,7 @@ class SessionStore(private val context: Context) : DeviceTokenStore {
                 familyId = prefs[Keys.FAMILY_ID],
                 familyName = prefs[Keys.FAMILY_NAME].orEmpty(),
                 familyRole = prefs[Keys.FAMILY_ROLE] ?: "member",
-                baseUrl = ServerConfig.normalize(
-                    storedBaseUrl?.takeIf { it.isNotBlank() } ?: BuildConfig.API_BASE_URL,
-                ),
+                baseUrl = ServerConfig.migrateStored(storedBaseUrl, BuildConfig.API_BASE_URL),
                 sharingEnabled = prefs[Keys.SHARING_ENABLED] ?: true,
                 pendingSharingPause = prefs[Keys.PENDING_SHARING_PAUSE] ?: false,
                 reportFrequency = ReportFrequency.fromStored(prefs[Keys.REPORT_FREQUENCY]),
