@@ -12,6 +12,8 @@ import {
 import { isUniqueConstraintError } from '../lib/prisma.ts';
 import { toLastLocation, type LastLocationDto } from '../lib/serializers.ts';
 import { inviteExpiryFrom } from '../lib/time.ts';
+import { resetMovementAnchors } from './alerts.ts';
+import { cleanupFollowsForUser } from './follows.ts';
 import { requireAdmin, requireMembership } from './memberships.ts';
 
 export interface FamilyRoleDto {
@@ -221,15 +223,16 @@ export async function removeMember(
   });
   if (!target) throw notFound('Family member not found');
 
-  await prisma.$transaction([
+  await prisma.$transaction(async (tx) => {
     // Soft-unbind: revoke device tokens and hide the devices, but keep rows so
     // the family retains historical tracks.
-    prisma.device.updateMany({
+    await tx.device.updateMany({
       where: { familyId: membership.familyId, userId: targetUserId, active: true },
       data: { active: false, revokedAt: new Date(), online: false },
-    }),
-    prisma.familyMember.delete({ where: { id: target.id } }),
-  ]);
+    });
+    await tx.familyMember.delete({ where: { id: target.id } });
+    await cleanupFollowsForUser(tx, targetUserId);
+  });
 }
 
 export async function setSharingPaused(
@@ -243,6 +246,8 @@ export async function setSharingPaused(
     data: { sharingPaused: paused },
     select: { sharingPaused: true },
   });
+  // Resume with a fresh movement baseline: the pause gap is not a "move".
+  if (!paused) await resetMovementAnchors(prisma, userId);
   return { sharingPaused: updated.sharingPaused };
 }
 
@@ -252,14 +257,15 @@ export async function leaveFamily(prisma: PrismaClient, userId: string): Promise
     throw forbidden('Admins cannot leave the family in M1; transfer or dissolve is not supported');
   }
 
-  await prisma.$transaction([
+  await prisma.$transaction(async (tx) => {
     // Keep device rows (and Location history); only revoke access.
-    prisma.device.updateMany({
+    await tx.device.updateMany({
       where: { familyId: membership.familyId, userId, active: true },
       data: { active: false, revokedAt: new Date(), online: false },
-    }),
-    prisma.familyMember.delete({ where: { id: membership.id } }),
-  ]);
+    });
+    await tx.familyMember.delete({ where: { id: membership.id } });
+    await cleanupFollowsForUser(tx, userId);
+  });
 }
 
 export async function getFamilyLatest(

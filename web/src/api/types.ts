@@ -138,6 +138,85 @@ export interface HistoryResponse {
   points: LocationPoint[]
 }
 
+export type AlertRuleType = 'MOVEMENT' | 'STALE' | 'LOW_BATTERY'
+
+export interface MovementRuleConfig {
+  thresholdMeters: number
+  cooldownMinutes: number
+}
+
+export interface StaleRuleConfig {
+  hours: number
+}
+
+export interface BatteryRuleConfig {
+  percent: number
+}
+
+export type AlertRuleConfig = MovementRuleConfig | StaleRuleConfig | BatteryRuleConfig
+
+export interface AlertRuleInfo {
+  id: string
+  type: AlertRuleType
+  enabled: boolean
+  config: AlertRuleConfig
+  lastFiredAt: string | null
+}
+
+export interface FollowInfo {
+  id: string
+  target: { userId: string; nickname: string }
+  createdAt: string
+  rules: AlertRuleInfo[]
+}
+
+export interface FollowerInfo {
+  userId: string
+  nickname: string
+  since: string
+}
+
+export interface AlertData {
+  lat?: number
+  lng?: number
+  accuracy?: number
+  distanceMeters?: number
+  recordedAt?: string
+  lastRecordedAt?: string
+  battery?: number
+  hours?: number
+}
+
+export interface AlertInfo {
+  id: string
+  type: AlertRuleType
+  target: { userId: string; nickname: string }
+  title: string
+  body: string
+  silent: boolean
+  data: AlertData
+  occurredAt: string
+  createdAt: string
+  readAt: string | null
+}
+
+export interface AlertsResponse {
+  alerts: AlertInfo[]
+  unreadCount: number
+}
+
+export interface AlertListOptions {
+  limit?: number
+  unreadOnly?: boolean
+  after?: string
+  before?: string
+}
+
+export interface CreateFollowInput {
+  targetUserId: string
+  rules?: Array<{ type: AlertRuleType; config?: Record<string, unknown> }>
+}
+
 export interface ApiSurface {
   auth: {
     login(input: LoginInput): Promise<AuthResult>
@@ -170,5 +249,27 @@ export interface ApiSurface {
   locate: {
     request(deviceId: string): Promise<LocateCommandResponse>
     command(commandId: string): Promise<CommandResponse>
+  }
+  follows: {
+    list(): Promise<{ follows: FollowInfo[] }>
+    create(input: CreateFollowInput): Promise<{ follow: FollowInfo }>
+    remove(id: string): Promise<void>
+    followers(): Promise<{ followers: FollowerInfo[] }>
+    createRule(
+      followId: string,
+      type: AlertRuleType,
+      config?: Record<string, unknown>,
+    ): Promise<{ rule: AlertRuleInfo }>
+    updateRule(
+      followId: string,
+      ruleId: string,
+      patch: { enabled?: boolean; config?: Record<string, unknown> },
+    ): Promise<{ rule: AlertRuleInfo }>
+    deleteRule(followId: string, ruleId: string): Promise<void>
+  }
+  alerts: {
+    list(options?: AlertListOptions): Promise<AlertsResponse>
+    markRead(id: string): Promise<void>
+    markAllRead(): Promise<{ updated: number }>
   }
 }

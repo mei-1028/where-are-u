@@ -51,6 +51,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresFamily: true, title: '历史轨迹' },
     },
     {
+      path: '/alerts',
+      name: 'alerts',
+      component: () => import('@/views/AlertsView.vue'),
+      meta: { requiresAuth: true, requiresFamily: true, title: '消息' },
+    },
+    {
       path: '/family',
       name: 'family',
       component: () => import('@/views/FamilyView.vue'),

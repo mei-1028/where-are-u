@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -42,6 +43,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,7 +75,9 @@ import com.whereareu.app.ui.components.PastelTag
 import com.whereareu.app.ui.components.PrimaryButton
 import com.whereareu.app.ui.components.StatusBanner
 import com.whereareu.app.ui.components.StatusPill
+import com.whereareu.app.ui.follow.FollowSheet
 import com.whereareu.app.ui.theme.BorderStrong
+import com.whereareu.app.ui.theme.DangerRed
 import com.whereareu.app.ui.theme.DangerSurface
 import com.whereareu.app.ui.theme.Ink
 import com.whereareu.app.ui.theme.MiroBlue
@@ -92,6 +96,7 @@ import com.whereareu.app.ui.viewModelFactoryFor
 fun MapHomeScreen(
     onOpenHistory: (String, String) -> Unit,
     onOpenInvite: () -> Unit,
+    onOpenAlerts: () -> Unit,
     onSessionExpired: () -> Unit,
     active: Boolean = true,
     onFamilyRemoved: () -> Unit = {},
@@ -109,6 +114,17 @@ fun MapHomeScreen(
         },
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val unreadAlerts by AppGraph.unreadAlerts.collectAsStateWithLifecycle()
+    val pendingFocus by AppGraph.pendingMemberFocus.collectAsStateWithLifecycle()
+
+    var followMember by remember { mutableStateOf<MemberUi?>(null) }
+
+    // Notification tap -> open that member's detail sheet.
+    LaunchedEffect(pendingFocus) {
+        val userId = pendingFocus ?: return@LaunchedEffect
+        viewModel.selectMember(userId)
+        AppGraph.pendingMemberFocus.value = null
+    }
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -313,11 +329,33 @@ fun MapHomeScreen(
                         maxLines = 1,
                     )
                 }
-                CircleIconButton(
-                    icon = Icons.Filled.Refresh,
-                    contentDescription = "刷新",
-                    onClick = viewModel::refresh,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box {
+                        CircleIconButton(
+                            icon = Icons.Filled.Notifications,
+                            contentDescription = "消息",
+                            onClick = onOpenAlerts,
+                        )
+                        if (unreadAlerts > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(DangerRed)
+                                    .border(2.dp, White, CircleShape),
+                            )
+                        }
+                    }
+                    CircleIconButton(
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "刷新",
+                        onClick = viewModel::refresh,
+                    )
+                }
             }
 
             if (uiState.members.isNotEmpty()) {
@@ -440,6 +478,17 @@ fun MapHomeScreen(
                 }
             },
             onNavigate = { navigateToMember(context, selected) },
+            onFollow = {
+                followMember = selected
+                viewModel.clearSelection()
+            },
+        )
+    }
+
+    followMember?.let { member ->
+        FollowSheet(
+            member = member,
+            onDismiss = { followMember = null },
         )
     }
 }

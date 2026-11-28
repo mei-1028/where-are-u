@@ -8,6 +8,11 @@ import { useFamilyStore } from '@/stores/family'
 import { useUiStore } from '@/stores/ui'
 import { messageForError } from '@/lib/errors'
 import { getApiBase } from '@/lib/session'
+import {
+  notificationPermission,
+  notificationsSupported,
+  requestNotificationPermission,
+} from '@/lib/notify'
 import Avatar from '@/components/Avatar.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import Icon from '@/components/Icon.vue'
@@ -33,6 +38,25 @@ const nicknameChanged = computed(
 )
 const canClearHistory = computed(() => isAdmin.value && isMockMode)
 const canLeave = computed(() => Boolean(family.family) && !isAdmin.value)
+
+const notifySupported = notificationsSupported()
+const notifyPermission = ref(notificationPermission())
+const notifyBusy = ref(false)
+
+async function enableDesktopNotifications(): Promise<void> {
+  if (notifyBusy.value) return
+  notifyBusy.value = true
+  try {
+    const granted = await requestNotificationPermission()
+    notifyPermission.value = notificationPermission()
+    ui.toast(
+      granted ? '已开启桌面通知' : '未获得通知权限，可在浏览器设置中开启',
+      granted ? 'success' : 'error',
+    )
+  } finally {
+    notifyBusy.value = false
+  }
+}
 
 onMounted(async () => {
   await family.ensureLoaded()
@@ -214,23 +238,40 @@ function confirmLogout(): void {
             <div class="card-head">
               <span class="card-head__title">
                 <span class="card-label">通知提醒</span>
-                <span class="tag">P1</span>
+                <span class="tag tag--blue">关注提醒</span>
               </span>
-              <span class="setting-row__desc">M1 不发送推送</span>
             </div>
-            <div class="setting-row is-muted">
+            <div class="setting-row">
               <div class="setting-row__copy">
-                <p class="setting-row__title">离线提醒</p>
-                <p class="setting-row__desc">家人超过 10 分钟没有位置更新时通知</p>
+                <p class="setting-row__title">桌面通知</p>
+                <p class="setting-row__desc">
+                  页面打开时，关注的家人有变动可以在桌面弹出通知。具体提醒规则在成员详情里设置。
+                </p>
               </div>
-              <button type="button" class="switch" role="switch" aria-checked="false" disabled />
+              <button
+                v-if="notifySupported && notifyPermission === 'granted'"
+                type="button"
+                class="switch is-on"
+                role="switch"
+                aria-checked="true"
+                disabled
+              />
+              <button
+                v-else
+                type="button"
+                class="btn btn--sm"
+                :disabled="!notifySupported || notifyBusy || notifyPermission === 'denied'"
+                @click="enableDesktopNotifications"
+              >
+                {{ notifyPermission === 'denied' ? '浏览器已拒绝' : '开启' }}
+              </button>
             </div>
-            <div class="setting-row is-muted">
+            <div class="setting-row">
               <div class="setting-row__copy">
-                <p class="setting-row__title">低电量提醒</p>
-                <p class="setting-row__desc">家人设备电量低于 20% 时提醒</p>
+                <p class="setting-row__title">站内消息中心</p>
+                <p class="setting-row__desc">所有提醒都会保留在「消息」里，App 被系统清理也不会丢</p>
               </div>
-              <button type="button" class="switch" role="switch" aria-checked="false" disabled />
+              <RouterLink to="/alerts" class="btn btn--ghost btn--sm">查看消息</RouterLink>
             </div>
           </section>
         </div>

@@ -1,13 +1,20 @@
 import { getApiBase, readToken } from '@/lib/session'
 import { ApiError } from './errors'
 import type {
+  AlertListOptions,
+  AlertRuleInfo,
+  AlertRuleType,
+  AlertsResponse,
   ApiSurface,
   AuthResult,
   CommandResponse,
   CreateDeviceInput,
   CreateDeviceResponse,
+  CreateFollowInput,
   DevicesResponse,
   FamilyResponse,
+  FollowInfo,
+  FollowerInfo,
   HistoryResponse,
   InviteResetResponse,
   LatestResponse,
@@ -163,6 +170,60 @@ export const realApi: ApiSurface = {
     },
     command(commandId: string) {
       return request<CommandResponse>(`/commands/${encodeURIComponent(commandId)}`)
+    },
+  },
+  follows: {
+    list() {
+      return request<{ follows: FollowInfo[] }>('/follows')
+    },
+    create(input: CreateFollowInput) {
+      return request<{ follow: FollowInfo }>('/follows', { method: 'POST', body: input })
+    },
+    remove(id: string) {
+      return request<void>(`/follows/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    },
+    followers() {
+      return request<{ followers: FollowerInfo[] }>('/follows/followers')
+    },
+    createRule(followId: string, type: AlertRuleType, config?: Record<string, unknown>) {
+      return request<{ rule: AlertRuleInfo }>(
+        `/follows/${encodeURIComponent(followId)}/rules`,
+        { method: 'POST', body: { type, config } },
+      )
+    },
+    updateRule(
+      followId: string,
+      ruleId: string,
+      patch: { enabled?: boolean; config?: Record<string, unknown> },
+    ) {
+      return request<{ rule: AlertRuleInfo }>(
+        `/follows/${encodeURIComponent(followId)}/rules/${encodeURIComponent(ruleId)}`,
+        { method: 'PATCH', body: patch },
+      )
+    },
+    deleteRule(followId: string, ruleId: string) {
+      return request<void>(
+        `/follows/${encodeURIComponent(followId)}/rules/${encodeURIComponent(ruleId)}`,
+        { method: 'DELETE' },
+      )
+    },
+  },
+  alerts: {
+    list(options: AlertListOptions = {}) {
+      return request<AlertsResponse>(
+        `/alerts${query({
+          limit: options.limit,
+          unread: options.unreadOnly ? 1 : undefined,
+          after: options.after,
+          before: options.before,
+        })}`,
+      )
+    },
+    markRead(id: string) {
+      return request<void>(`/alerts/${encodeURIComponent(id)}/read`, { method: 'POST' })
+    },
+    markAllRead() {
+      return request<{ updated: number }>('/alerts/read-all', { method: 'POST' })
     },
   },
 }

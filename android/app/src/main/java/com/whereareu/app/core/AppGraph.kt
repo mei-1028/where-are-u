@@ -7,6 +7,7 @@ import com.whereareu.app.core.auth.AuthRepository
 import com.whereareu.app.core.auth.DeviceManager
 import com.whereareu.app.core.auth.FamilySessionManager
 import com.whereareu.app.core.auth.SessionStore
+import com.whereareu.app.core.data.AlertsRepository
 import com.whereareu.app.core.data.FamilyRepository
 import com.whereareu.app.core.data.HistoryRepository
 import com.whereareu.app.core.location.LocationFlushScheduler
@@ -28,7 +29,9 @@ import com.whereareu.app.core.util.BatteryReader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -43,6 +46,27 @@ object AppGraph {
 
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /**
+     * UI intents raised outside the Compose tree (notification taps). The map /
+     * scaffold consumes and clears them.
+     */
+    val pendingMemberFocus = MutableStateFlow<String?>(null)
+    val pendingAlertsOpen = MutableStateFlow(false)
+    /** In-memory unread badge; refreshed by the inbox and the device socket. */
+    val unreadAlerts = MutableStateFlow(0)
+
+    fun requestMemberFocus(userId: String) {
+        pendingMemberFocus.value = userId
+    }
+
+    fun requestAlertsOpen() {
+        pendingAlertsOpen.value = true
+    }
+
+    fun bumpUnreadAlerts(delta: Int = 1) {
+        unreadAlerts.update { current -> (current + delta).coerceAtLeast(0) }
+    }
+
     lateinit var appContext: Context
         private set
     lateinit var sessionStore: SessionStore
@@ -56,6 +80,8 @@ object AppGraph {
     lateinit var familyRepository: FamilyRepository
         private set
     lateinit var historyRepository: HistoryRepository
+        private set
+    lateinit var alertsRepository: AlertsRepository
         private set
     lateinit var addressResolver: AddressResolver
         private set
@@ -109,6 +135,7 @@ object AppGraph {
             )
             familyRepository = FamilyRepository(userApi, sessionStore)
             historyRepository = HistoryRepository(userApi)
+            alertsRepository = AlertsRepository(userApi)
             addressResolver = AndroidAddressResolver(app)
             val reauthMutex = Mutex()
             locationReporter = LocationReporter(

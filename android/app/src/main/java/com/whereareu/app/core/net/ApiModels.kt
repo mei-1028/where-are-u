@@ -1,6 +1,7 @@
 package com.whereareu.app.core.net
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -215,6 +216,106 @@ data class CommandStatusResponse(
     val status: String,
     val completedAt: String? = null,
 )
+
+// ---------------------------------------------------------------------------
+// Follows & alerts
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class FollowTargetDto(
+    val userId: String,
+    val nickname: String = "",
+)
+
+@Serializable
+data class AlertRuleDto(
+    val id: String,
+    val type: String,
+    val enabled: Boolean = true,
+    /** Type-specific JSON: thresholdMeters/cooldownMinutes/hours/percent. */
+    val config: JsonObject? = null,
+    val lastFiredAt: String? = null,
+)
+
+@Serializable
+data class FollowDto(
+    val id: String,
+    val target: FollowTargetDto,
+    val createdAt: String? = null,
+    val rules: List<AlertRuleDto> = emptyList(),
+)
+
+@Serializable
+data class FollowsResponse(val follows: List<FollowDto> = emptyList())
+
+@Serializable
+data class FollowResponse(val follow: FollowDto)
+
+@Serializable
+data class FollowerDto(
+    val userId: String,
+    val nickname: String = "",
+    val since: String? = null,
+)
+
+@Serializable
+data class FollowersResponse(val followers: List<FollowerDto> = emptyList())
+
+@Serializable
+data class CreateFollowRuleInput(
+    val type: String,
+    val config: JsonObject? = null,
+)
+
+@Serializable
+data class CreateFollowRequest(
+    val targetUserId: String,
+    val rules: List<CreateFollowRuleInput> = emptyList(),
+)
+
+@Serializable
+data class CreateRuleRequest(
+    val type: String,
+    val config: JsonObject? = null,
+)
+
+@Serializable
+data class UpdateRuleRequest(
+    val enabled: Boolean? = null,
+    val config: JsonObject? = null,
+)
+
+@Serializable
+data class RuleResponse(val rule: AlertRuleDto)
+
+@Serializable
+data class AlertTargetDto(
+    val userId: String,
+    val nickname: String = "",
+)
+
+@Serializable
+data class AlertDto(
+    val id: String,
+    val type: String,
+    val target: AlertTargetDto,
+    val title: String,
+    val body: String = "",
+    val silent: Boolean = false,
+    val data: JsonObject? = null,
+    val occurredAt: String? = null,
+    val createdAt: String? = null,
+    val readAt: String? = null,
+)
+
+@Serializable
+data class AlertsResponse(
+    val alerts: List<AlertDto> = emptyList(),
+    val unreadCount: Int = 0,
+)
+
+@Serializable
+data class ReadAllResponse(val updated: Int = 0)
 
 // ---------------------------------------------------------------------------
 // Errors

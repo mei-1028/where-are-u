@@ -61,6 +61,8 @@ class LocationTrackingService : Service() {
 
     @Volatile private var started = false
     @Volatile private var stopping = false
+    /** One inbox catch-up per service lifetime; reconnects must not re-notify. */
+    @Volatile private var alertsCaughtUp = false
 
     override fun onCreate() {
         super.onCreate()
@@ -261,6 +263,31 @@ class LocationTrackingService : Service() {
             is SocketEvent.Connected -> {
                 Log.i(TAG, "Device socket connected")
                 serviceScope.launch { AppGraph.locationReporter.flush() }
+                if (!alertsCaughtUp) {
+                    // Optimistic guard against parallel connects; reset on
+                    // failure so the next reconnect retries the catch-up.
+                    alertsCaughtUp = true
+                    serviceScope.launch {
+                        val result = AppGraph.alertsRepository.unreadSummary()
+                        if (result.isFailure) {
+                            alertsCaughtUp = false
+                        } else {
+                            result.onSuccess { (_, unread) ->
+                                AppGraph.unreadAlerts.value = unread
+                                Notifications.showFollowSummary(
+                                    this@LocationTrackingService,
+                                    unread,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            is SocketEvent.Alert -> {
+                // silent alerts still bump the badge; they just do not buzz.
+                AppGraph.bumpUnreadAlerts(1)
+                Notifications.showFollowAlert(this, event.alert)
             }
 
             is SocketEvent.Disconnected -> {

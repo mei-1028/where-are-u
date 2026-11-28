@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useAlertsStore } from '@/stores/alerts'
 import { useAuthStore } from '@/stores/auth'
 import { useFamilyStore } from '@/stores/family'
 import { useUiStore } from '@/stores/ui'
@@ -13,15 +14,21 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const family = useFamilyStore()
+const alerts = useAlertsStore()
 const ui = useUiStore()
 const now = useNow()
 
 const NAV = [
   { label: '地图', to: '/', names: ['map', 'history'], icon: 'map' },
+  { label: '消息', to: '/alerts', names: ['alerts'], icon: 'bell' },
   { label: '家庭', to: '/family', names: ['family'], icon: 'users' },
   { label: '设备', to: '/devices', names: ['devices'], icon: 'device' },
   { label: '设置', to: '/settings', names: ['settings'], icon: 'settings' },
 ]
+
+const unreadLabel = computed(() =>
+  alerts.unreadCount > 99 ? '99+' : String(alerts.unreadCount),
+)
 
 const menuOpen = ref(false)
 const refreshBusy = ref(false)
@@ -68,6 +75,7 @@ async function refresh(): Promise<void> {
 
 function logout(): void {
   closeMenu()
+  alerts.reset()
   auth.logout()
   router.push({ name: 'login' })
 }
@@ -86,6 +94,16 @@ watch(
   () => closeMenu(),
 )
 
+// Alerts are global: poll on every authenticated page, not just the map.
+watch(
+  () => [auth.isAuthenticated, auth.familyId] as const,
+  ([authenticated, familyId]) => {
+    if (authenticated && familyId) alerts.startPolling()
+    else alerts.stopPolling()
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   ui.initNetwork()
   if (auth.isAuthenticated && auth.familyId && !family.family) {
@@ -98,6 +116,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocumentClick)
   document.removeEventListener('keydown', onKeydown)
+  alerts.stopPolling()
 })
 </script>
 
@@ -138,6 +157,13 @@ onBeforeUnmount(() => {
           >
             <Icon :name="item.icon" :size="17" />
             <span class="nav__label">{{ item.label }}</span>
+            <span
+              v-if="item.to === '/alerts' && alerts.unreadCount > 0"
+              class="nav__badge"
+              :aria-label="`${alerts.unreadCount} 条未读消息`"
+            >
+              {{ unreadLabel }}
+            </span>
           </RouterLink>
         </nav>
 
@@ -307,6 +333,7 @@ onBeforeUnmount(() => {
 }
 
 .nav__item {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -320,6 +347,23 @@ onBeforeUnmount(() => {
   transition:
     background-color 0.16s var(--ease-out),
     color 0.16s var(--ease-out);
+}
+
+.nav__badge {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  background: var(--danger);
+  color: var(--white);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--white);
 }
 
 .nav__item:hover {

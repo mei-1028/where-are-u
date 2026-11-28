@@ -233,3 +233,94 @@
 ## 10. M1 不做
 
 地理围栏、推送通知、iOS、部署者管理后台、聊天、位置导出。
+
+## 11. 关注与提醒（v1.0.4 新增）
+
+### 11.1 概念
+
+- 关注是**单向订阅**：A 关注 B，只影响 A 收到的提醒，不改变家庭内互相可见的位置权限。
+- 关注无需对方同意；B 可以通过「关注者列表」看到谁在关注自己，但看不到对方的具体规则。
+- 一个关注下可配置多条规则（每种类型最多一条，最多 5 条）。
+- 规则由**服务端**评估；`Alert` 是站内消息的事实来源，设备 WebSocket 只负责尽快送达。
+- 被关注者暂停共享（`sharingPaused=true`）期间不评估任何规则，恢复共享时位置变动规则重新取基准。
+
+### 11.2 规则类型
+
+| type | config | 默认值 | 说明 |
+|---|---|---|---|
+| `MOVEMENT` | `{ thresholdMeters, cooldownMinutes }` | 500 / 30 | 与「上次通知时的位置」比较，移动超过阈值触发；冷却期内不重复，基准不移动 |
+| `STALE` | `{ hours }` | 12 | 超过 N 小时没有新的位置点；规则创建后先等待一次新位置再开始监控 |
+| `LOW_BATTERY` | `{ percent }` | 20 | 电量低于阈值触发；回升到 `percent + 5` 后重新武装 |
+
+范围校验：`thresholdMeters` 200–50000，`cooldownMinutes` 5–1440，`hours` 1–168，`percent` 1–50。
+
+夜间静默：中国时区 23:00–07:00 触发的 `LOW_BATTERY` 告警 `silent=true`（仍入库、仍推送未读数，但客户端不弹系统通知）。`MOVEMENT` / `STALE` 不受影响。
+
+### 11.3 端点（均为用户 JWT）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/follows` | `{ follows: [Follow] }` |
+| POST | `/api/follows` | `{ targetUserId, rules?: [{ type, config? }] }`；已关注 → `200` 返回原记录，新建 → `201` |
+| DELETE | `/api/follows/:id` | `204`，级联删除规则，历史 Alert 保留 |
+| GET | `/api/follows/followers` | `{ followers: [{ userId, nickname, since }] }` |
+| POST | `/api/follows/:id/rules` | `201 { rule }`；同类型重复 → `409 CONFLICT` |
+| PATCH | `/api/follows/:id/rules/:ruleId` | `{ enabled?, config? }`，config 与现有值合并后整体校验 |
+| DELETE | `/api/follows/:id/rules/:ruleId` | `204` |
+| GET | `/api/alerts?limit=50&unread=1&after=&before=` | `{ alerts: [Alert], unreadCount }`，按 `createdAt` 倒序，limit 1–100 |
+| POST | `/api/alerts/:id/read` | `204`，幂等 |
+| POST | `/api/alerts/read-all` | `{ updated }` |
+
+校验：不能关注自己（`400 VALIDATION`）；目标不是同家庭成员（`404 NOT_FOUND`，不泄露存在性）；规则不属于当前用户（`404`）。
+
+`Follow`：
+
+```json
+{
+  "id": "f_1",
+  "target": { "userId": "u_2", "nickname": "妈妈" },
+  "createdAt": "2026-11-28T12:00:00.000Z",
+  "rules": [
+    { "id": "r_1", "type": "MOVEMENT", "enabled": true,
+      "config": { "thresholdMeters": 500, "cooldownMinutes": 30 },
+      "lastFiredAt": "2026-11-28T12:30:00.000Z" }
+  ]
+}
+```
+
+`Alert`：
+
+```json
+{
+  "id": "a_1", "type": "MOVEMENT",
+  "target": { "userId": "u_2", "nickname": "妈妈" },
+  "title": "妈妈 位置发生变化",
+  "body": "已移动约 1.2 公里",
+  "silent": false,
+  "data": { "lat": 31.68, "lng": 120.79, "accuracy": 20,
+            "distanceMeters": 1234, "recordedAt": "2026-11-28T12:29:00.000Z" },
+  "occurredAt": "2026-11-28T12:29:00.000Z",
+  "createdAt": "2026-11-28T12:30:02.000Z",
+  "readAt": null
+}
+```
+
+`data` 按类型不同：`STALE` 带 `lastRecordedAt/lat/lng/hours`，`LOW_BATTERY` 带 `battery/lat/lng/recordedAt`。
+
+### 11.4 设备 WebSocket 新增下行消息
+
+```json
+{ "type": "alert", "alert": { /* 同 Alert */ } }
+```
+
+离线设备不补推；客户端重新连接后通过 `GET /api/alerts?unread=1` 补拉。
+
+### 11.5 数据模型（Prisma）
+
+| 模型 | 关键字段 |
+|---|---|
+| Follow | id, familyId, followerId, targetId, createdAt; unique(followerId,targetId); index(targetId) |
+| AlertRule | id, followId, type(`MOVEMENT`/`STALE`/`LOW_BATTERY`), enabled, config(JSON), state(JSON), createdAt, updatedAt |
+| Alert | id, userId(接收者), familyId, ruleId?, targetId, type, title, body, data(JSON), silent, dedupeKey(unique), occurredAt, createdAt, readAt?; index(userId, createdAt) |
+
+告警保留 90 天，由服务端扫描任务清理。

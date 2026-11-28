@@ -1,5 +1,6 @@
 package com.whereareu.app.core.ws
 
+import com.whereareu.app.core.net.AlertDto
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -8,6 +9,7 @@ import kotlinx.serialization.json.jsonPrimitive
 sealed interface ServerSocketEvent {
     data class Locate(val commandId: String, val deadlineAt: String?) : ServerSocketEvent
     data class Ping(val ts: String?) : ServerSocketEvent
+    data class Alert(val alert: AlertDto) : ServerSocketEvent
     data object Unknown : ServerSocketEvent
 }
 
@@ -38,6 +40,15 @@ object ServerSocketParser {
             "ping" -> ServerSocketEvent.Ping(
                 ts = obj["ts"]?.jsonPrimitive?.contentOrNull,
             )
+
+            "alert" -> {
+                val payload = obj["alert"] ?: return null
+                val alert = runCatching {
+                    json.decodeFromJsonElement(AlertDto.serializer(), payload)
+                }.getOrNull()
+                if (alert == null || alert.id.isBlank()) null
+                else ServerSocketEvent.Alert(alert)
+            }
 
             else -> ServerSocketEvent.Unknown
         }

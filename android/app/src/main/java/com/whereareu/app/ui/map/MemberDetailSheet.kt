@@ -69,6 +69,7 @@ fun MemberDetailSheet(
     onLocate: () -> Unit,
     onHistory: () -> Unit,
     onNavigate: () -> Unit,
+    onFollow: () -> Unit,
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -311,6 +312,11 @@ fun MemberDetailSheet(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                Spacer(Modifier.height(8.dp))
+                SecondaryButton(
+                    text = "关注 TA 的位置变化",
+                    onClick = onFollow,
+                )
             }
         }
     }

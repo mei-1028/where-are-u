@@ -6,13 +6,16 @@ import { createPrismaClient } from './lib/prisma.ts';
 import { authPlugin } from './plugins/auth.ts';
 import { errorHandlerPlugin } from './plugins/errors.ts';
 import { securityPlugin } from './plugins/security.ts';
+import { alertRoutes } from './routes/alerts.ts';
 import { authRoutes } from './routes/auth.ts';
 import { deviceRoutes } from './routes/devices.ts';
 import { familyRoutes } from './routes/families.ts';
+import { followRoutes } from './routes/follows.ts';
 import { healthRoutes } from './routes/health.ts';
 import { locateRoutes } from './routes/locate.ts';
 import { locationRoutes } from './routes/locations.ts';
 import { wsRoutes } from './routes/ws.ts';
+import { sweepAlerts } from './services/alerts.ts';
 import { RealtimeHub } from './services/realtime.ts';
 import { sweepExpiredCommands } from './services/locate.ts';
 
@@ -25,6 +28,8 @@ export interface BuildServerOptions {
   wsSilenceTimeoutMs?: number;
   /** Test hook; production sweeper runs every 5s. */
   sweepIntervalMs?: number;
+  /** Test hook; the stale-alert sweep runs every 60s in production. */
+  alertSweepIntervalMs?: number;
 }
 
 export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
@@ -40,6 +45,9 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   app.decorate('config', config);
   app.decorate('realtime', new RealtimeHub());
   app.decorate('locateMutex', new Mutex());
+  // Serializes alert evaluation so two devices of the same member cannot race
+  // the same rule state.
+  app.decorate('alertMutex', new Mutex());
 
   await app.register(errorHandlerPlugin);
   await app.register(authPlugin);
@@ -56,6 +64,8 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
       await api.register(deviceRoutes);
       await api.register(locationRoutes);
       await api.register(locateRoutes);
+      await api.register(followRoutes);
+      await api.register(alertRoutes);
     },
     { prefix: '/api' },
   );
@@ -74,8 +84,20 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   }, sweepIntervalMs);
   sweepTimer.unref();
 
+  // Stale-alert sweep (fires "no update for N hours") + alert retention.
+  const alertSweepIntervalMs = options.alertSweepIntervalMs ?? 60_000;
+  const alertSweepTimer = setInterval(() => {
+    app.alertMutex
+      .run(() => sweepAlerts(prisma, app.realtime))
+      .catch((error: unknown) => {
+        app.log.error({ err: error }, 'Alert sweep failed');
+      });
+  }, alertSweepIntervalMs);
+  alertSweepTimer.unref();
+
   app.addHook('onClose', async () => {
     clearInterval(sweepTimer);
+    clearInterval(alertSweepTimer);
     app.realtime.closeAll();
     await prisma.$disconnect();
   });

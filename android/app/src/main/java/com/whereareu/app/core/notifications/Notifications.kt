@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import com.whereareu.app.MainActivity
 import com.whereareu.app.R
 import com.whereareu.app.core.location.LocationTrackingService
+import com.whereareu.app.core.net.AlertDto
 
 object Notifications {
 
@@ -24,6 +25,9 @@ object Notifications {
     const val RESTORE_NOTIFICATION_ID = 1002
     const val SHARING_ACTION_FAILED_NOTIFICATION_ID = 1003
     const val LOCATE_FAILED_NOTIFICATION_ID = 1004
+    const val FOLLOW_SUMMARY_NOTIFICATION_ID = 1010
+    private const val FOLLOW_ALERT_BASE_ID = 2000
+    private const val FOLLOW_GROUP = "com.whereareu.app.FOLLOW_ALERTS"
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -131,6 +135,48 @@ object Notifications {
         }
     }
 
+    /** A follow alert. Silent (night-time low battery) alerts stay inbox-only. */
+    fun showFollowAlert(context: Context, alert: AlertDto) {
+        if (alert.silent) return
+        if (!canPostNotifications(context)) return
+        ensureChannels(context)
+        val notification = NotificationCompat.Builder(context, CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_stat_location)
+            .setContentTitle(alert.title)
+            .setContentText(alert.body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(alert.body))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setGroup(FOLLOW_GROUP)
+            .setContentIntent(openMemberPendingIntent(context, alert.target.userId, alert.id.hashCode()))
+            .build()
+        runCatching {
+            context.getSystemService(NotificationManager::class.java)
+                ?.notify(FOLLOW_ALERT_BASE_ID + alert.id.hashCode(), notification)
+        }
+    }
+
+    /** One catch-up summary after the service (re)connects. */
+    fun showFollowSummary(context: Context, unreadCount: Int) {
+        if (unreadCount <= 0) return
+        if (!canPostNotifications(context)) return
+        ensureChannels(context)
+        val notification = NotificationCompat.Builder(context, CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_stat_location)
+            .setContentTitle("你有 $unreadCount 条关注提醒")
+            .setContentText("点按查看家人最新动态")
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setGroup(FOLLOW_GROUP)
+            .setGroupSummary(true)
+            .setContentIntent(openAlertsPendingIntent(context))
+            .build()
+        runCatching {
+            context.getSystemService(NotificationManager::class.java)
+                ?.notify(FOLLOW_SUMMARY_NOTIFICATION_ID, notification)
+        }
+    }
+
     private fun canPostNotifications(context: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
@@ -143,6 +189,32 @@ object Notifications {
             Intent(context, MainActivity::class.java).addFlags(
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP,
             ),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    private fun openMemberPendingIntent(
+        context: Context,
+        userId: String,
+        requestCode: Int,
+    ): PendingIntent =
+        PendingIntent.getActivity(
+            context,
+            requestCode,
+            Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra(MainActivity.EXTRA_MEMBER_ID, userId)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    private fun openAlertsPendingIntent(context: Context): PendingIntent =
+        PendingIntent.getActivity(
+            context,
+            13,
+            Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra(MainActivity.EXTRA_OPEN_ALERTS, true)
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 }

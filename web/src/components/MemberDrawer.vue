@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
 import { ApiError } from '@/api/errors'
 import type { MemberView } from '@/api/types'
+import { useAuthStore } from '@/stores/auth'
 import { useFamilyStore } from '@/stores/family'
+import { useFollowsStore } from '@/stores/follows'
 import { useUiStore } from '@/stores/ui'
 import { messageForError } from '@/lib/errors'
 import { isStaleLocation } from '@/lib/geo'
@@ -17,14 +19,25 @@ import {
 } from '@/lib/format'
 import { usePlaceLabel } from '@/composables/usePlaceLabel'
 import Avatar from './Avatar.vue'
+import FollowSheet from './FollowSheet.vue'
 import Icon from './Icon.vue'
 
 const props = defineProps<{ member: MemberView }>()
 const emit = defineEmits<{ close: []; locating: [active: boolean] }>()
 
 const router = useRouter()
+const auth = useAuthStore()
 const family = useFamilyStore()
+const follows = useFollowsStore()
 const ui = useUiStore()
+
+const followOpen = ref(false)
+const isMe = computed(() => props.member.userId === auth.user?.id)
+const isFollowed = computed(() => Boolean(follows.byTarget(props.member.userId)))
+
+onMounted(() => {
+  void follows.ensureLoaded()
+})
 
 type LocateState = 'idle' | 'pending' | 'success' | 'error'
 
@@ -287,6 +300,16 @@ onBeforeUnmount(() => {
           查看历史轨迹
         </button>
         <button
+          v-if="!isMe"
+          type="button"
+          class="btn member-detail__secondary"
+          :class="{ 'is-followed': isFollowed }"
+          @click="followOpen = true"
+        >
+          <Icon name="bell" :size="16" />
+          {{ isFollowed ? '已关注 · 提醒设置' : '关注 TA 的位置变化' }}
+        </button>
+        <button
           type="button"
           class="member-detail__link"
           :disabled="!location"
@@ -312,6 +335,12 @@ onBeforeUnmount(() => {
           <span class="device-row__time">{{ formatClock(location?.recordedAt) }}</span>
         </div>
       </div>
+
+      <FollowSheet
+        :open="followOpen"
+        :member="{ userId: member.userId, nickname: member.nickname }"
+        @close="followOpen = false"
+      />
     </div>
   </aside>
 </template>
@@ -552,6 +581,12 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 600;
   border-radius: 8px;
+}
+
+.member-detail__secondary.is-followed {
+  background: var(--blue-soft);
+  color: var(--blue-pressed);
+  box-shadow: inset 0 0 0 1px rgba(91, 118, 254, 0.18);
 }
 
 .member-detail__link {

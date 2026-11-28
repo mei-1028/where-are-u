@@ -22,6 +22,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.whereareu.app.core.AppGraph
+import com.whereareu.app.ui.alerts.AlertsScreen
 import com.whereareu.app.ui.family.FamilyScreen
 import com.whereareu.app.ui.family.InviteScreen
 import com.whereareu.app.ui.history.HistoryScreen
@@ -49,6 +53,7 @@ private enum class MainTab(val label: String, val icon: ImageVector) {
 
 private const val OVERLAY_HISTORY = "history"
 private const val OVERLAY_INVITE = "invite"
+private const val OVERLAY_ALERTS = "alerts"
 
 @Composable
 fun MainScaffold(
@@ -65,6 +70,24 @@ fun MainScaffold(
     var historyDeviceId by rememberSaveable { mutableStateOf("") }
     var historyName by rememberSaveable { mutableStateOf("") }
     val overlayInteraction = remember { MutableInteractionSource() }
+
+    val pendingAlerts by AppGraph.pendingAlertsOpen.collectAsStateWithLifecycle()
+    val pendingFocus by AppGraph.pendingMemberFocus.collectAsStateWithLifecycle()
+
+    // Notification taps: bring the map (and optionally the inbox) to the front.
+    LaunchedEffect(pendingAlerts) {
+        if (pendingAlerts) {
+            selectedTabName = MainTab.MAP.name
+            overlayRoute = OVERLAY_ALERTS
+            AppGraph.pendingAlertsOpen.value = false
+        }
+    }
+    LaunchedEffect(pendingFocus) {
+        if (pendingFocus != null) {
+            selectedTabName = MainTab.MAP.name
+            overlayRoute = null
+        }
+    }
 
     BackHandler(enabled = overlayRoute != null) {
         overlayRoute = null
@@ -122,6 +145,7 @@ fun MainScaffold(
                     overlayRoute = OVERLAY_HISTORY
                 },
                 onOpenInvite = { overlayRoute = OVERLAY_INVITE },
+                onOpenAlerts = { overlayRoute = OVERLAY_ALERTS },
                 onSessionExpired = onSessionExpired,
                 onFamilyRemoved = onLeftFamily,
                 active = selectedTab == MainTab.MAP && overlayRoute == null,
@@ -186,6 +210,26 @@ fun MainScaffold(
                     ),
             ) {
                 InviteScreen(onBack = { overlayRoute = null })
+            }
+
+            OVERLAY_ALERTS -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(White)
+                    .clickable(
+                        interactionSource = overlayInteraction,
+                        indication = null,
+                        onClick = {},
+                    ),
+            ) {
+                AlertsScreen(
+                    onBack = { overlayRoute = null },
+                    onOpenMember = { userId ->
+                        AppGraph.requestMemberFocus(userId)
+                        selectedTabName = MainTab.MAP.name
+                        overlayRoute = null
+                    },
+                )
             }
         }
     }

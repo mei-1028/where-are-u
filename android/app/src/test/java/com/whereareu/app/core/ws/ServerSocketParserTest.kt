@@ -1,5 +1,7 @@
 package com.whereareu.app.core.ws
 
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -38,6 +40,31 @@ class ServerSocketParserTest {
         val event = ServerSocketParser.parse("""{"type":"ping","ts":"2026-11-26T12:04:00Z"}""")
         assertTrue(event is ServerSocketEvent.Ping)
         assertEquals("2026-11-26T12:04:00Z", (event as ServerSocketEvent.Ping).ts)
+    }
+
+    @Test
+    fun `parses a follow alert`() {
+        val event = ServerSocketParser.parse(
+            """{"type":"alert","alert":{"id":"a_1","type":"MOVEMENT",""" +
+                """"target":{"userId":"u_2","nickname":"妈妈"},""" +
+                """"title":"妈妈 位置发生变化","body":"已移动约 1.2 公里",""" +
+                """"silent":false,"data":{"distanceMeters":1200},""" +
+                """"occurredAt":"2026-11-28T10:00:00.000Z",""" +
+                """"createdAt":"2026-11-28T10:00:02.000Z","readAt":null}}""",
+        )
+        assertTrue(event is ServerSocketEvent.Alert)
+        val alert = (event as ServerSocketEvent.Alert).alert
+        assertEquals("a_1", alert.id)
+        assertEquals("MOVEMENT", alert.type)
+        assertEquals("妈妈", alert.target.nickname)
+        assertEquals(false, alert.silent)
+        assertEquals(1200, alert.data?.get("distanceMeters")?.jsonPrimitive?.int)
+    }
+
+    @Test
+    fun `alert without required fields is rejected`() {
+        assertNull(ServerSocketParser.parse("""{"type":"alert"}"""))
+        assertNull(ServerSocketParser.parse("""{"type":"alert","alert":{"type":"MOVEMENT"}}"""))
     }
 
     @Test

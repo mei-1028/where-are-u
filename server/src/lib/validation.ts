@@ -51,6 +51,90 @@ export function parseDate(value: string): Date {
   return new Date(value);
 }
 
+/* ------------------------------------------------------------------ */
+/* Follow / alert rules                                                */
+/* ------------------------------------------------------------------ */
+
+export const RULE_TYPES = ['MOVEMENT', 'STALE', 'LOW_BATTERY'] as const;
+export type RuleType = (typeof RULE_TYPES)[number];
+
+export const ruleTypeSchema = z.enum(RULE_TYPES);
+
+export const movementConfigSchema = z
+  .object({
+    thresholdMeters: z.number().int().min(200).max(50_000).default(500),
+    cooldownMinutes: z.number().int().min(5).max(1440).default(30),
+  })
+  .strict();
+
+export const staleConfigSchema = z
+  .object({
+    hours: z.number().int().min(1).max(168).default(12),
+  })
+  .strict();
+
+export const batteryConfigSchema = z
+  .object({
+    percent: z.number().int().min(1).max(50).default(20),
+  })
+  .strict();
+
+export type MovementConfig = z.infer<typeof movementConfigSchema>;
+export type StaleConfig = z.infer<typeof staleConfigSchema>;
+export type BatteryConfig = z.infer<typeof batteryConfigSchema>;
+export type RuleConfig = MovementConfig | StaleConfig | BatteryConfig;
+
+/** Parses a type-specific config, applying defaults for omitted fields. */
+export function parseRuleConfig(type: RuleType, input: unknown): RuleConfig {
+  switch (type) {
+    case 'MOVEMENT':
+      return parseInput(movementConfigSchema, input ?? {});
+    case 'STALE':
+      return parseInput(staleConfigSchema, input ?? {});
+    case 'LOW_BATTERY':
+      return parseInput(batteryConfigSchema, input ?? {});
+  }
+}
+
+export const createFollowSchema = z.object({
+  targetUserId: z.string().min(1).max(64),
+  rules: z
+    .array(
+      z.object({
+        type: ruleTypeSchema,
+        config: z.unknown().optional(),
+      }),
+    )
+    .max(5)
+    .optional(),
+});
+
+export const createRuleSchema = z.object({
+  type: ruleTypeSchema,
+  config: z.unknown().optional(),
+});
+
+export const updateRuleSchema = z.object({
+  enabled: z.boolean().optional(),
+  config: z.unknown().optional(),
+});
+
+export const alertsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  unread: z.enum(['1', '0']).optional(),
+  after: isoDateString.optional(),
+  before: isoDateString.optional(),
+});
+
+export const followIdParams = z.object({
+  id: z.string().min(1).max(64),
+});
+
+export const ruleParams = z.object({
+  id: z.string().min(1).max(64),
+  ruleId: z.string().min(1).max(64),
+});
+
 /** Start (UTC) of the current day, used as the default history `from` value. */
 export function startOfTodayUtc(now = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));

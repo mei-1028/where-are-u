@@ -26,6 +26,8 @@ declare module 'fastify' {
     realtime: RealtimeHub;
     /** Serializes locate dedupe + creation within this process. */
     locateMutex: Mutex;
+    /** Serializes alert evaluation (ingest + stale sweep) within this process. */
+    alertMutex: Mutex;
     requireUser: (request: FastifyRequest) => Promise<void>;
     requireDevice: (request: FastifyRequest) => Promise<void>;
   }

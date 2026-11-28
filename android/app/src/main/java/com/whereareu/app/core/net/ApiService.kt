@@ -90,4 +90,50 @@ interface ApiService {
 
     @GET("commands/{id}")
     suspend fun commandStatus(@Path("id") commandId: String): CommandStatusResponse
+
+    // Follows & alerts -------------------------------------------------------
+
+    @GET("follows")
+    suspend fun follows(): FollowsResponse
+
+    @POST("follows")
+    suspend fun createFollow(@Body body: CreateFollowRequest): FollowResponse
+
+    @DELETE("follows/{id}")
+    suspend fun deleteFollow(@Path("id") followId: String): Response<Unit>
+
+    @GET("follows/followers")
+    suspend fun followers(): FollowersResponse
+
+    @POST("follows/{id}/rules")
+    suspend fun createRule(
+        @Path("id") followId: String,
+        @Body body: CreateRuleRequest,
+    ): RuleResponse
+
+    @PATCH("follows/{id}/rules/{ruleId}")
+    suspend fun updateRule(
+        @Path("id") followId: String,
+        @Path("ruleId") ruleId: String,
+        @Body body: UpdateRuleRequest,
+    ): RuleResponse
+
+    @DELETE("follows/{id}/rules/{ruleId}")
+    suspend fun deleteRule(
+        @Path("id") followId: String,
+        @Path("ruleId") ruleId: String,
+    ): Response<Unit>
+
+    @GET("alerts")
+    suspend fun alerts(
+        @Query("limit") limit: Int = 50,
+        @Query("unread") unread: Int? = null,
+        @Query("after") after: String? = null,
+    ): AlertsResponse
+
+    @POST("alerts/{id}/read")
+    suspend fun markAlertRead(@Path("id") alertId: String): Response<Unit>
+
+    @POST("alerts/read-all")
+    suspend fun markAllAlertsRead(): ReadAllResponse
 }

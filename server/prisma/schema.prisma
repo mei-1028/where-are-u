@@ -10,27 +10,33 @@ datasource db {
 }
 
 model User {
-  id            String         @id @default(cuid())
-  username      String         @unique
-  nickname      String
-  passwordHash  String
-  createdAt     DateTime       @default(now())
-  memberships   FamilyMember[]
-  devices       Device[]
-  locations     Location[]
+  id             String          @id @default(cuid())
+  username       String          @unique
+  nickname       String
+  passwordHash   String
+  createdAt      DateTime        @default(now())
+  memberships    FamilyMember[]
+  devices        Device[]
+  locations      Location[]
   locateRequests LocateCommand[] @relation("LocateRequestedBy")
+  following      Follow[]        @relation("FollowFollower")
+  followers      Follow[]        @relation("FollowTarget")
+  alertsReceived Alert[]         @relation("AlertRecipient")
+  alertsAbout    Alert[]         @relation("AlertTarget")
 }
 
 model Family {
-  id              String         @id @default(cuid())
+  id              String          @id @default(cuid())
   name            String
-  inviteCode      String         @unique
+  inviteCode      String          @unique
   inviteExpiresAt DateTime
-  createdAt       DateTime       @default(now())
+  createdAt       DateTime        @default(now())
   members         FamilyMember[]
   devices         Device[]
   locations       Location[]
   commands        LocateCommand[]
+  follows         Follow[]
+  alerts          Alert[]
 }
 
 model FamilyMember {
@@ -50,26 +56,26 @@ model FamilyMember {
 }
 
 model Device {
-  id          String   @id @default(cuid())
-  userId      String
-  familyId    String
-  name        String
-  platform    String
-  model       String
-  osVersion   String
-  appVersion  String
-  tokenHash   String   @unique
-  online      Boolean  @default(false)
+  id         String          @id @default(cuid())
+  userId     String
+  familyId   String
+  name       String
+  platform   String
+  model      String
+  osVersion  String
+  appVersion String
+  tokenHash  String          @unique
+  online     Boolean         @default(false)
   // Soft unbind: revoked devices keep their rows (and Location history) but
   // can no longer authenticate, be located, or appear in device lists.
-  active      Boolean  @default(true)
-  revokedAt   DateTime?
-  lastSeenAt  DateTime?
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  family      Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  locations   Location[]
-  commands    LocateCommand[]
+  active     Boolean         @default(true)
+  revokedAt  DateTime?
+  lastSeenAt DateTime?
+  createdAt  DateTime        @default(now())
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family     Family          @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  locations  Location[]
+  commands   LocateCommand[]
 
   @@index([familyId, active])
   @@index([userId])
@@ -112,4 +118,66 @@ model LocateCommand {
 
   @@index([deviceId, createdAt])
   @@index([status, deadlineAt])
+}
+
+/// One-way "notify me about this member" subscription. Family-local; the
+/// target can see who follows them, but not the rule details.
+model Follow {
+  id         String      @id @default(cuid())
+  familyId   String
+  followerId String
+  targetId   String
+  createdAt  DateTime    @default(now())
+  follower   User        @relation("FollowFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  target     User        @relation("FollowTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  family     Family      @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  rules      AlertRule[]
+
+  @@unique([followerId, targetId])
+  @@index([targetId])
+  @@index([familyId])
+}
+
+/// A per-follow rule. `config` is type-specific JSON; `state` is the server's
+/// evaluation cursor (anchor coords, armed flag, last fire time).
+model AlertRule {
+  id        String   @id @default(cuid())
+  followId  String
+  type      String // "MOVEMENT" | "STALE" | "LOW_BATTERY"
+  enabled   Boolean  @default(true)
+  config    String   @default("{}")
+  state     String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  follow    Follow   @relation(fields: [followId], references: [id], onDelete: Cascade)
+  alerts    Alert[]
+
+  @@index([followId])
+  @@index([type, enabled])
+}
+
+/// A fired notification for the follower. The row is the source of truth (the
+/// in-app inbox); the WebSocket push is only a best-effort delivery channel.
+model Alert {
+  id         String     @id @default(cuid())
+  userId     String // recipient (the follower)
+  familyId   String
+  ruleId     String?
+  targetId   String
+  type       String
+  title      String
+  body       String
+  data       String     @default("{}")
+  silent     Boolean    @default(false)
+  dedupeKey  String     @unique
+  occurredAt DateTime
+  createdAt  DateTime   @default(now())
+  readAt     DateTime?
+  user       User       @relation("AlertRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  target     User       @relation("AlertTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  family     Family     @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  rule       AlertRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
 }

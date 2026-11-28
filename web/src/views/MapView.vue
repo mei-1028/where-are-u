@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useFamilyStore } from '@/stores/family'
 import { useUiStore } from '@/stores/ui'
@@ -15,6 +15,7 @@ const POLL_INTERVAL = 10_000
 const ROSTER_REFRESH_INTERVAL = 60_000
 const VISIBLE_ROSTER_MIN_INTERVAL = 12_000
 
+const route = useRoute()
 const auth = useAuthStore()
 const family = useFamilyStore()
 const ui = useUiStore()
@@ -81,6 +82,25 @@ function handleLocating(active: boolean): void {
   locatingId.value = active ? selectedId.value : null
 }
 
+/**
+ * Deep link from a message / browser notification: /?member=<userId>.
+ * Applied once per distinct id so closing the drawer is not undone by the
+ * 10s member refresh.
+ */
+let appliedMemberQuery: string | null = null
+function applyMemberQuery(force = false): void {
+  const memberId = route.query.member
+  if (typeof memberId !== 'string' || !memberId) {
+    appliedMemberQuery = null
+    return
+  }
+  if (!force && appliedMemberQuery === memberId) return
+  if (family.memberViews.some((member) => member.userId === memberId)) {
+    selectMember(memberId)
+    appliedMemberQuery = memberId
+  }
+}
+
 async function retryLoad(): Promise<void> {
   if (!family.family) {
     await family.load(true)
@@ -142,12 +162,19 @@ watch(
       selectedId.value = null
       locatingId.value = null
     }
+    applyMemberQuery()
   },
+)
+
+watch(
+  () => route.query.member,
+  () => applyMemberQuery(true),
 )
 
 onMounted(async () => {
   ui.initNetwork()
   await family.ensureLoaded()
+  applyMemberQuery(true)
   startPolling()
 })
 

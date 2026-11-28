@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { validationError } from '../lib/errors.ts';
 import { MAX_RECORDED_AT_FUTURE_MS } from '../lib/time.ts';
+import { evaluateIngest } from '../services/alerts.ts';
 import { getFamilyLatest } from '../services/families.ts';
 import { ingestLocations, listDeviceHistory } from '../services/locations.ts';
 import {
@@ -38,6 +39,21 @@ export const locationRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const accepted = await ingestLocations(app.prisma, request.authDevice!, input);
+
+      // Alerts are best-effort: a rule bug must never fail a location write.
+      try {
+        await app.alertMutex.run(() =>
+          evaluateIngest(
+            app.prisma,
+            app.realtime,
+            request.authDevice!.userId,
+            input.points,
+          ),
+        );
+      } catch (error) {
+        request.log.warn({ err: error }, 'Alert evaluation failed');
+      }
+
       return reply.code(202).send({ accepted });
     },
   );

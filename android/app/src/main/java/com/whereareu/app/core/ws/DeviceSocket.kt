@@ -1,6 +1,7 @@
 package com.whereareu.app.core.ws
 
 import android.util.Log
+import com.whereareu.app.core.net.AlertDto
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -23,6 +24,7 @@ sealed interface SocketEvent {
     data object Connected : SocketEvent
     data class Disconnected(val reason: String?) : SocketEvent
     data class Locate(val commandId: String, val deadlineAt: String?) : SocketEvent
+    data class Alert(val alert: AlertDto) : SocketEvent
     data object Unauthorized : SocketEvent
 }
 
@@ -128,6 +130,11 @@ class DeviceSocket(
                     is ServerSocketEvent.Locate -> {
                         Log.i(TAG, "locate command received: ${event.commandId}")
                         _events.tryEmit(SocketEvent.Locate(event.commandId, event.deadlineAt))
+                    }
+
+                    is ServerSocketEvent.Alert -> {
+                        Log.i(TAG, "follow alert received: ${event.alert.type}")
+                        _events.tryEmit(SocketEvent.Alert(event.alert))
                     }
 
                     is ServerSocketEvent.Ping -> {

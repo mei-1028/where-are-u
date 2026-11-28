@@ -3,17 +3,26 @@ import { localDateValue, parseDateValue } from '@/lib/format'
 import { readToken } from '@/lib/session'
 import { ApiError } from './errors'
 import type {
+  AlertInfo,
+  AlertListOptions,
+  AlertRuleConfig,
+  AlertRuleInfo,
+  AlertRuleType,
+  AlertsResponse,
   ApiSurface,
   ApiUser,
   AuthResult,
   CommandResponse,
   CreateDeviceInput,
   CreateDeviceResponse,
+  CreateFollowInput,
   DeviceInfo,
   DevicesResponse,
   FamilyInfo,
   FamilyMemberInfo,
   FamilyResponse,
+  FollowInfo,
+  FollowerInfo,
   HistoryResponse,
   InviteResetResponse,
   LatestMemberInfo,
@@ -83,17 +92,38 @@ interface MockCommand {
   completedAt?: string
 }
 
+interface MockRule {
+  id: string
+  type: AlertRuleType
+  enabled: boolean
+  config: Record<string, unknown>
+  lastFiredAt: string | null
+}
+
+interface MockFollow {
+  id: string
+  familyId: string
+  followerId: string
+  targetId: string
+  createdAt: string
+  rules: MockRule[]
+}
+
+type MockAlert = AlertInfo & { familyId: string; userId: string }
+
 interface MockDb {
   version: number
   users: MockUser[]
   families: MockFamily[]
   devices: MockDevice[]
   commands: MockCommand[]
+  follows: MockFollow[]
+  alerts: MockAlert[]
   tokens: Record<string, string>
 }
 
 const DB_KEY = 'where-are-u:mock:v1'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const DEMO_PASSWORD = 'demo1234'
 
 function storage(): Storage | null {
@@ -247,12 +277,83 @@ function seedDb(): MockDb {
     },
   ]
 
+  const follows: MockFollow[] = [
+    {
+      id: 'f_1',
+      familyId: family.id,
+      followerId: 'u_1',
+      targetId: 'u_4',
+      createdAt: isoAgo(3 * 86_400_000),
+      rules: [
+        {
+          id: 'r_1',
+          type: 'MOVEMENT',
+          enabled: true,
+          config: { thresholdMeters: 500, cooldownMinutes: 30 },
+          lastFiredAt: null,
+        },
+        {
+          id: 'r_2',
+          type: 'LOW_BATTERY',
+          enabled: true,
+          config: { percent: 20 },
+          lastFiredAt: isoAgo(2 * 3_600_000),
+        },
+        {
+          id: 'r_3',
+          type: 'STALE',
+          enabled: true,
+          config: { hours: 12 },
+          lastFiredAt: isoAgo(2 * 3_600_000),
+        },
+      ],
+    },
+  ]
+
+  const alerts: MockAlert[] = [
+    {
+      id: 'a_1',
+      userId: 'u_1',
+      familyId: family.id,
+      type: 'LOW_BATTERY',
+      target: { userId: 'u_4', nickname: '奶奶' },
+      title: '奶奶 手机电量低',
+      body: '剩余 18%，可能很快关机',
+      silent: false,
+      data: { lat: 30.2862, lng: 120.1256, battery: 18, recordedAt: isoAgo(2 * 3_600_000) },
+      occurredAt: isoAgo(2 * 3_600_000),
+      createdAt: isoAgo(2 * 3_600_000),
+      readAt: null,
+    },
+    {
+      id: 'a_2',
+      userId: 'u_1',
+      familyId: family.id,
+      type: 'STALE',
+      target: { userId: 'u_4', nickname: '奶奶' },
+      title: '奶奶 已 12 小时没有更新位置',
+      body: '可能关机、断网，或 App 被系统清理',
+      silent: false,
+      data: {
+        lat: 30.2862,
+        lng: 120.1256,
+        lastRecordedAt: isoAgo(14 * 3_600_000),
+        hours: 12,
+      },
+      occurredAt: isoAgo(2 * 3_600_000),
+      createdAt: isoAgo(2 * 3_600_000),
+      readAt: isoAgo(3_600_000),
+    },
+  ]
+
   return {
     version: DB_VERSION,
     users,
     families: [family],
     devices,
     commands: [],
+    follows,
+    alerts,
     tokens: {},
   }
 }
@@ -528,6 +629,60 @@ function buildTrail(device: MockDevice, dateKey: string): LocationPoint[] {
   }
 
   return points
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Follow / alert helpers                                                    */
+/* -------------------------------------------------------------------------- */
+
+const RULE_DEFAULTS: Record<AlertRuleType, Record<string, unknown>> = {
+  MOVEMENT: { thresholdMeters: 500, cooldownMinutes: 30 },
+  STALE: { hours: 12 },
+  LOW_BATTERY: { percent: 20 },
+}
+
+function toRuleInfo(rule: MockRule): AlertRuleInfo {
+  return {
+    id: rule.id,
+    type: rule.type,
+    enabled: rule.enabled,
+    config: rule.config as unknown as AlertRuleConfig,
+    lastFiredAt: rule.lastFiredAt,
+  }
+}
+
+function toFollowInfo(follow: MockFollow): FollowInfo {
+  const target = findUser(follow.targetId)
+  return {
+    id: follow.id,
+    target: { userId: target.id, nickname: target.nickname },
+    createdAt: follow.createdAt,
+    rules: follow.rules.map(toRuleInfo),
+  }
+}
+
+function toAlertInfo(alert: MockAlert): AlertInfo {
+  return {
+    id: alert.id,
+    type: alert.type,
+    target: alert.target,
+    title: alert.title,
+    body: alert.body,
+    silent: alert.silent,
+    data: alert.data,
+    occurredAt: alert.occurredAt,
+    createdAt: alert.createdAt,
+    readAt: alert.readAt,
+  }
+}
+
+function requireOwnedFollow(followId: string): MockFollow {
+  const { user } = requireSession()
+  const follow = getDb().follows.find(
+    (item) => item.id === followId && item.followerId === user.id,
+  )
+  if (!follow) throw new ApiError(404, 'NOT_FOUND', '关注不存在')
+  return follow
 }
 
 /* -------------------------------------------------------------------------- */
@@ -925,6 +1080,179 @@ export const mockApi: ApiSurface = {
         status: command.status,
         ...(command.completedAt ? { completedAt: command.completedAt } : {}),
       }
+    },
+  },
+
+  follows: {
+    async list(): Promise<{ follows: FollowInfo[] }> {
+      await sleep(120)
+      const { user } = requireSession()
+      return {
+        follows: getDb()
+          .follows.filter((follow) => follow.followerId === user.id)
+          .map(toFollowInfo),
+      }
+    },
+
+    async create(input: CreateFollowInput): Promise<{ follow: FollowInfo }> {
+      await sleep(180)
+      const { user, family } = requireFamily()
+      if (input.targetUserId === user.id) {
+        throw new ApiError(400, 'VALIDATION', '不能关注自己')
+      }
+      if (!family.members.some((member) => member.userId === input.targetUserId)) {
+        throw new ApiError(404, 'NOT_FOUND', '家庭成员不存在')
+      }
+
+      const database = getDb()
+      const existing = database.follows.find(
+        (follow) =>
+          follow.followerId === user.id && follow.targetId === input.targetUserId,
+      )
+      if (existing) return { follow: toFollowInfo(existing) }
+
+      const follow: MockFollow = {
+        id: newId('f'),
+        familyId: family.id,
+        followerId: user.id,
+        targetId: input.targetUserId,
+        createdAt: new Date().toISOString(),
+        rules: (input.rules ?? []).map((rule) => ({
+          id: newId('r'),
+          type: rule.type,
+          enabled: true,
+          config: { ...RULE_DEFAULTS[rule.type], ...(rule.config ?? {}) },
+          lastFiredAt: null,
+        })),
+      }
+      database.follows.push(follow)
+      persist()
+      return { follow: toFollowInfo(follow) }
+    },
+
+    async remove(id: string): Promise<void> {
+      await sleep(140)
+      const { user } = requireSession()
+      const database = getDb()
+      const index = database.follows.findIndex(
+        (follow) => follow.id === id && follow.followerId === user.id,
+      )
+      if (index < 0) throw new ApiError(404, 'NOT_FOUND', '关注不存在')
+      database.follows.splice(index, 1)
+      persist()
+    },
+
+    async followers(): Promise<{ followers: FollowerInfo[] }> {
+      await sleep(110)
+      const { user } = requireSession()
+      return {
+        followers: getDb()
+          .follows.filter((follow) => follow.targetId === user.id)
+          .map((follow) => ({
+            userId: follow.followerId,
+            nickname: findUser(follow.followerId).nickname,
+            since: follow.createdAt,
+          })),
+      }
+    },
+
+    async createRule(
+      followId: string,
+      type: AlertRuleType,
+      config?: Record<string, unknown>,
+    ): Promise<{ rule: AlertRuleInfo }> {
+      await sleep(140)
+      const follow = requireOwnedFollow(followId)
+      if (follow.rules.some((rule) => rule.type === type)) {
+        throw new ApiError(409, 'CONFLICT', '该类型的提醒已存在')
+      }
+      if (follow.rules.length >= 5) {
+        throw new ApiError(400, 'VALIDATION', '最多 5 条提醒规则')
+      }
+      const rule: MockRule = {
+        id: newId('r'),
+        type,
+        enabled: true,
+        config: { ...RULE_DEFAULTS[type], ...(config ?? {}) },
+        lastFiredAt: null,
+      }
+      follow.rules.push(rule)
+      persist()
+      return { rule: toRuleInfo(rule) }
+    },
+
+    async updateRule(
+      followId: string,
+      ruleId: string,
+      patch: { enabled?: boolean; config?: Record<string, unknown> },
+    ): Promise<{ rule: AlertRuleInfo }> {
+      await sleep(120)
+      const follow = requireOwnedFollow(followId)
+      const rule = follow.rules.find((item) => item.id === ruleId)
+      if (!rule) throw new ApiError(404, 'NOT_FOUND', '提醒规则不存在')
+      if (patch.enabled !== undefined) rule.enabled = patch.enabled
+      if (patch.config) rule.config = { ...rule.config, ...patch.config }
+      persist()
+      return { rule: toRuleInfo(rule) }
+    },
+
+    async deleteRule(followId: string, ruleId: string): Promise<void> {
+      await sleep(120)
+      const follow = requireOwnedFollow(followId)
+      const index = follow.rules.findIndex((rule) => rule.id === ruleId)
+      if (index < 0) throw new ApiError(404, 'NOT_FOUND', '提醒规则不存在')
+      follow.rules.splice(index, 1)
+      persist()
+    },
+  },
+
+  alerts: {
+    async list(options: AlertListOptions = {}): Promise<AlertsResponse> {
+      await sleep(100)
+      const { user } = requireSession()
+      const mine = getDb().alerts.filter((alert) => alert.userId === user.id)
+      let items = mine
+      if (options.unreadOnly) items = items.filter((alert) => alert.readAt === null)
+      if (options.after) {
+        items = items.filter((alert) => alert.createdAt > options.after!)
+      }
+      if (options.before) {
+        items = items.filter((alert) => alert.createdAt < options.before!)
+      }
+      items = items
+        .slice()
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, options.limit ?? 50)
+      return {
+        alerts: items.map(toAlertInfo),
+        unreadCount: mine.filter((alert) => alert.readAt === null).length,
+      }
+    },
+
+    async markRead(id: string): Promise<void> {
+      await sleep(90)
+      const { user } = requireSession()
+      const alert = getDb().alerts.find(
+        (item) => item.id === id && item.userId === user.id,
+      )
+      if (!alert) throw new ApiError(404, 'NOT_FOUND', '消息不存在')
+      if (!alert.readAt) alert.readAt = new Date().toISOString()
+      persist()
+    },
+
+    async markAllRead(): Promise<{ updated: number }> {
+      await sleep(140)
+      const { user } = requireSession()
+      const now = new Date().toISOString()
+      let updated = 0
+      for (const alert of getDb().alerts) {
+        if (alert.userId === user.id && !alert.readAt) {
+          alert.readAt = now
+          updated += 1
+        }
+      }
+      persist()
+      return { updated }
     },
   },
 }
